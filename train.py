@@ -24,7 +24,7 @@ def get_args(parser):
     parser.add_argument("--model_type", type=str, default="Vanilla", choices=["Vanilla", "MIMO", "MultiHead"])
     parser.add_argument("--use_gpu", action='store_true')
     parser.add_argument("--device_numbers", default=[0])
-    parser.add_argument("--save_path", type=str, required=True, help="Path to save the model)
+    parser.add_argument("--save_path", type=str, required=True, help="Path to save the model")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--patience", type=int, default=10)
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     train, valid, _ = dataset.get_fmnist(
         datapath = os.environ['DATA_DIR'], 
         batch_size=args.batch_size,
-        download = False, 
+        download = True, 
         shuffle = True,
         seed=args.seed)
 
@@ -74,7 +74,7 @@ if __name__ == "__main__":
         min_lr=0, 
         eps=1e-08)
     
-    
+    if not os.path.exists(args.save_path):
     history_csv_path = os.path.join(args.save_path, "history.csv")
     history_pkl_path = os.path.join(args.save_path, "history.pkl")
 
