@@ -75,6 +75,7 @@ if __name__ == "__main__":
         eps=1e-08)
     
     if not os.path.exists(args.save_path):
+        os.makedirs(args.save_path)
     history_csv_path = os.path.join(args.save_path, "history.csv")
     history_pkl_path = os.path.join(args.save_path, "history.pkl")
 
