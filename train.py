@@ -120,3 +120,7 @@ if __name__ == "__main__":
                         patience=args.patience,
                         )
     
+    """
+    python train.py --model_type MultiHead --batch_size 32 --lr 0.01 --verbose 
+ESULTS_DIR/MultiHead_test --use_gpu
+    """
