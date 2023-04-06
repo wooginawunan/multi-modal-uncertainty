@@ -83,13 +83,16 @@ class MIMOResNet(ResNet):
 
         return out
     
-    def compute_loss(self, y_hat, y):
+    def compute_loss(self, y_hat, y, eval=False):
 
         assert y.shape[0] == y_hat.shape[0]
         
-        y = y.unsqueeze(1).repeat(1, y_hat.shape[1]).view(-1)
-        y_hat = y_hat.view(-1, y_hat.shape[2])
-        
+        y = y.view(-1)
+        if not eval:
+            y_hat = y_hat.view(-1, y_hat.shape[2])
+        else:
+            y_hat = y_hat.mean(1)
+
         return self.loss(y_hat, y)
     
 class FusionTransfomer(nn.Module):

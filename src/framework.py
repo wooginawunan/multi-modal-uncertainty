@@ -94,19 +94,20 @@ class StepIterator:
 
 
 class Model_:
-    def __init__(self, model, optimizer, scheduler, *, metrics=[], 
+    def __init__(self, model, optimizer, scheduler, data_forming_func, *, metrics=[], 
         verbose=True):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
+        self.data_forming = data_forming_func
         self.metrics = metrics
         self.metrics_names = [metric.__name__ for metric in self.metrics]
         self.device = None
         self.verbose = verbose
         self.verbose_logs = {} 
 
-    def _compute_metrics(self, pred_y, y):
-        return np.array([float(metric(pred_y, y)) for metric in self.metrics])
+    def _compute_metrics(self, pred_y, y, eval):
+        return np.array([float(metric(pred_y, y, eval)) for metric in self.metrics])
 
     def _transfer_optimizer_state_to_right_device(self):
         # Since the optimizer state is loaded on CPU, it will crashed when the
@@ -150,9 +151,9 @@ class Model_:
             for step, (x, y) in step_iterator:
                 step['size'] = len(x)
                 x, y = x.to(self.device), y.to(self.device)
-                outputs  = self.model(x)
-                loss = self.model.compute_loss(outputs, y)
-                info = self._compute_metrics(outputs, y)
+                outputs = self.model(x)
+                loss = self.model.compute_loss(outputs, y, eval=True)
+                info = self._compute_metrics(outputs, y, eval=True)
                         
                 step['loss'] = float(loss)
                 step.update({'metrics': info})
@@ -225,6 +226,8 @@ class Model_:
             self.model.train(True)
             with torch.enable_grad():
                 for step, (x, y) in train_step_iterator: 
+                    
+                    x, y = self.data_forming(x, y)
                     step['size'] = len(x)
                     self.optimizer.zero_grad()
 
@@ -234,7 +237,7 @@ class Model_:
                     loss.backward()
 
                     with torch.no_grad():
-                        info = self._compute_metrics(y_pred, y)
+                        info = self._compute_metrics(y_pred, y, eval=False)
                     callback_list.on_backward_end(step['number'])
                     self.optimizer.step()  
                     step.update({'metrics': info})

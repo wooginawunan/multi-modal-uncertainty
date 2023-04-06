@@ -76,27 +76,15 @@ def get_fmnist(
                                     train=False,
                                     transform=transform_to_quarter)
     
-    test_loader = torch.utils.data.DataLoader(testing,
-                                               batch_size=batch_size,
-                                               shuffle=False)
-    num_train = len(training)
-    indices = list(range(num_train))
-    training_idx = indices
-    valid_loader = None
-
-    if sample_size is None:
-        sample_size = len(training_idx)
-    training_idx = training_idx[:sample_size]
-
-    training_sub = torch.utils.data.Subset(training, training_idx)
-
-    training_loader = torch.utils.data.DataLoader(training_sub,
+    training_loader = torch.utils.data.DataLoader(training,
                                                    batch_size=batch_size,
                                                    shuffle=shuffle
                                                    ) 
+    
+    test_loader = torch.utils.data.DataLoader(testing,
+                                            batch_size=batch_size,
+                                            shuffle=False)
 
     print('training_loader LENGTH:', len(training_loader))
-    dd = training.train_data[training_idx].float()
-
         
     return training_loader, test_loader, None
