@@ -16,6 +16,35 @@ import torch
 from torchvision import datasets, transforms
 from torchvision.transforms import functional as F_trans
 
+
+def data_forming_func(x, y, model_type):
+    
+    if model_type=='Vanilla':
+        y = y.unsqueeze(1).repeat(1, 1)
+        
+    elif model_type=="MultiHead":
+        y = y.unsqueeze(1).repeat(1, 4)
+        
+    elif model_type=="MIMO-shuffle-instance":
+        # x: B, 4, 1, 28, 28
+        x_new = []
+        y_new = []
+        for i in range(4):
+            idx = torch.randperm(x.size(0))
+            x_new.append(x[idx, i, :, :, :])
+            y_new.append(y[idx])
+        
+        x = torch.stack(x_new, dim=1)
+        y = torch.stack(y_new, dim=1)      
+        
+    elif model_type=="MIMO-shuffle-view":
+        x_new = x[:, torch.randperm(x.size(1)), :, :, :]
+        y = y.unsqueeze(1).repeat(1, 4)
+    else:
+        raise NotImplementedError
+    
+    return x, y
+
 class QuarterCrop(object):
     """
     Input size is 28*28 for fasion MNIST    
