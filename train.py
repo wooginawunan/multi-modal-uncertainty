@@ -31,20 +31,6 @@ def get_args(parser):
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--patience", type=int, default=10)
 
-    # inputs = [x]
-    # targets = [y]
-
-    # for _ in range(ens_size-1):
-    #     rd_index = torch.randperm(len(y))      #tf.random.shuffle(tf.range(len(y)))
-    #     shuffled_x =  x[rd_index]              #tf.gather(x, rd_index)
-    #     shuffled_y =  y[rd_index]              #tf.gather(y, rd_index)
-    #     inputs.append(shuffled_x)
-    #     targets.append(shuffled_y)
-
-    # inputs = torch.stack(inputs, 1).to(next(model.parameters()).device)
-    # targets = torch.stack(targets, 1).to(next(model.parameters()).device)
-    # return inputs, targets
-
 def data_forming_func(x, y, model_type):
     
     if model_type=='Vanilla':
