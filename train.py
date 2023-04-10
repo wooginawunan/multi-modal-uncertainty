@@ -31,34 +31,6 @@ def get_args(parser):
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--patience", type=int, default=10)
 
-def data_forming_func(x, y, model_type):
-    
-    if model_type=='Vanilla':
-        y = y.unsqueeze(1).repeat(1, 1)
-        
-    elif model_type=="MultiHead":
-        y = y.unsqueeze(1).repeat(1, 4)
-        
-    elif model_type=="MIMO-shuffle-instance":
-        # x: B, 4, 1, 28, 28
-        x_new = []
-        y_new = []
-        for i in range(4):
-            idx = torch.randperm(x.size(0))
-            x_new.append(x[idx, i, :, :, :])
-            y_new.append(y[idx])
-        
-        x = torch.stack(x_new, dim=1)
-        y = torch.stack(y_new, dim=1)      
-        
-    elif model_type=="MIMO-shuffle-view":
-        x_new = x[:, torch.randperm(x.size(1)), :, :, :]
-        y = y.unsqueeze(1).repeat(1, 4)
-    else:
-        raise NotImplementedError
-    
-    return x, y
-
 def acc(y_pred, y_true, eval):
     
     if not eval:
@@ -110,16 +82,13 @@ if __name__ == "__main__":
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
     history_csv_path = os.path.join(args.save_path, "history.csv")
-    history_pkl_path = os.path.join(args.save_path, "history.pkl")
 
-    logger.info("Removing {} and {}".format(history_pkl_path, history_csv_path))
-    os.system("rm " + history_pkl_path)
+    logger.info("Removing {}".format(history_csv_path))
     os.system("rm " + history_csv_path)
 
     H = {}
-
-    checkpoint_monitor="val_acc"
-    callbacks = _construct_default_callbacks(model, optimizer, H, args.save_path, checkpoint_monitor)
+    callbacks = _construct_default_callbacks(model, optimizer, H, args.save_path, 
+                                             checkpoint_monitor="val_acc")
     
     # Configure callbacks
     for clbk in callbacks:
@@ -130,7 +99,8 @@ if __name__ == "__main__":
     model = Model_(model=model, 
         optimizer=optimizer, 
         scheduler=scheduler,
-        data_forming_func=partial(data_forming_func, model_type=args.model_type),
+        data_forming_func=partial(dataset.data_forming_func, 
+                                  model_type=args.model_type),
         metrics=[acc],
         verbose=args.verbose,
         )

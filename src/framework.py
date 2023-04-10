@@ -131,7 +131,7 @@ class Model_:
 
         return self
 
-    def _eval_generator(self, generator, phase, *, steps=None):
+    def eval_loop(self, generator, phase, *, steps=None):
         if steps is None:
             steps = len(generator)
         
@@ -168,24 +168,6 @@ class Model_:
         }
 
         return info_dict
-
-    def eval_loop(self, test_generator, *,  test_steps=None, epochs=1, callbacks=[]):
-        callback_list = CallbackList(callbacks)
-        callback_list.set_model_pytoune(self)
-        callback_list.on_train_begin({})
-        epoch = 0
-        while epoch <=epochs:
-            epoch_begin_time = timeit.default_timer()
-            callback_list.on_epoch_begin(epoch, {})
-            test_dict = self._eval_generator(test_generator, 'test', steps=test_steps)
-
-            test_dict['epoch'] = epoch
-            test_dict['time'] = timeit.default_timer() - epoch_begin_time
-            test_dict['epoch_begin_time'] = epoch_begin_time
-
-            callback_list.on_epoch_end(epoch, test_dict)
-            
-            epoch+=1
 
     def train_loop(self,
                       train_generator,
@@ -250,9 +232,9 @@ class Model_:
                     **train_step_iterator.metrics}
             
             # validation
-            val_dict = self._eval_generator(valid_generator, 'val', steps=validation_steps)
+            val_dict = self.eval_loop(valid_generator, 'val', steps=validation_steps)
             # test
-            test_dict = self._eval_generator(test_generator, 'test', steps=test_steps)
+            test_dict = self.eval_loop(test_generator, 'test', steps=test_steps)
            
             epoch_log = {
                 'epoch': epoch, 
