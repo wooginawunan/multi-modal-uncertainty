@@ -26,7 +26,7 @@ def data_forming_func(x, y, model_type):
         y = y.unsqueeze(1).repeat(1, 4)
         
     elif model_type=="MIMO-shuffle-instance":
-        # x: B, 4, 1, 28, 28
+        # x: B, 4, 1, 14, 14
         x_new = []
         y_new = []
         for i in range(4):
@@ -38,7 +38,7 @@ def data_forming_func(x, y, model_type):
         y = torch.stack(y_new, dim=1)      
         
     elif model_type=="MIMO-shuffle-view":
-        x_new = x[:, torch.randperm(x.size(1)), :, :, :]
+        x = x[:, torch.randperm(x.size(1)), :, :, :]
         y = y.unsqueeze(1).repeat(1, 4)
     else:
         raise NotImplementedError
