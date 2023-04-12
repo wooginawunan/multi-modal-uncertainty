@@ -72,5 +72,5 @@ def _load_pretrained_model(model, save_path):
     checkpoint = torch.load(save_path)
     model_dict = model.state_dict()
     model_dict.update(checkpoint['model']) 
-    model.load_state_dict(model_dict, strict=False)
+    model.load_state_dict(model_dict, strict=True)
     logger.info("Done reloading!")
