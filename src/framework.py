@@ -150,6 +150,7 @@ class Model_:
         with torch.no_grad():
             for step, (x, y) in step_iterator:
                 step['size'] = len(x)
+                x, y = self.data_forming(x, y, phase='eval')
                 x, y = x.to(self.device), y.to(self.device)
                 outputs = self.model(x)
                 loss = self.model.compute_loss(outputs, y, eval=True)
@@ -209,7 +210,7 @@ class Model_:
             with torch.enable_grad():
                 for step, (x, y) in train_step_iterator: 
                     
-                    x, y = self.data_forming(x, y)
+                    x, y = self.data_forming(x, y, phase='train')
                     step['size'] = len(x)
                     self.optimizer.zero_grad()
 

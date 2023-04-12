@@ -69,7 +69,13 @@ class MIMOResNet(ResNet):
 
     def forward(self, x):
         # x: B, E, C, H, W
-        x = x.view(x.size(0), -1,  x.size(3), x.size(4)) # x: B, E*C, H, W
+        if len(x.shape) == 5:
+            # concatenate the view/ensemble dimension as the channel dimension
+            x = x.view(x.size(0), -1,  x.size(3), x.size(4)) # x: B, E*C, H, W
+        else:
+            # sharinng weight model
+            # B*E, C, H, W
+            pass 
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)

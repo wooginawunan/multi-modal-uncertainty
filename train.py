@@ -23,7 +23,8 @@ def get_args(parser):
     parser.add_argument("--momentum", type=int, default=0.9)
     parser.add_argument("--n_epochs", type=int, default=100)
     parser.add_argument("--model_type", type=str, default="Vanilla", 
-                        choices=["Vanilla", "MIMO-shuffle-instance", "MIMO-shuffle-view", "MultiHead"])
+                        choices=["Vanilla", "MIMO-shuffle-instance", "MIMO-shuffle-view", "MultiHead", 
+                                 "MIMO-shuffle-all", "single-model-weight-sharing"])
     parser.add_argument("--use_gpu", action='store_true')
     parser.add_argument("--device", default=0, type=int)
     parser.add_argument("--save_path", type=str, required=True, help="Path to save the model")
@@ -50,12 +51,17 @@ if __name__ == "__main__":
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
     
-    if args.model_type == "Vanilla":
+    if args.model_type in ["Vanilla", "single-model-weight-sharing"]:
         out_dim = 1
     else:
         out_dim = 4
+        
+    if args.model_type == "single-model-weight-sharing":
+        emb_dim = 1
+    else:
+        emb_dim = 4
     
-    model = MIMOResNet(num_channels=1, emb_dim=4, out_dim=out_dim, num_classes=10)
+    model = MIMOResNet(num_channels=1, emb_dim=emb_dim, out_dim=out_dim, num_classes=10)
     train, valid, _ = dataset.get_fmnist(
         datapath = os.environ['DATA_DIR'], 
         batch_size=args.batch_size,
