@@ -181,6 +181,7 @@ class Model_:
                       test_steps=None,
                       patience=10, # early stopping
                       callbacks=[],
+                      epoch_start=1,
                       ):
         
         self._transfer_optimizer_state_to_right_device()
@@ -196,7 +197,7 @@ class Model_:
     
         callback_list.on_train_begin({})
         val_dict, test_dict = {}, {}
-        for epoch in range(1, epochs+1):
+        for epoch in range(epoch_start, epochs+1):
             callback_list.on_epoch_begin(epoch, {})
             
             epoch_begin_time = timeit.default_timer()
@@ -244,7 +245,7 @@ class Model_:
                 **train_dict, **val_dict, **test_dict
             }
             
-            self.scheduler.step(epoch_log['loss'])
+            self.scheduler.step(epoch_log['val_loss'])
              
             callback_list.on_epoch_end(epoch, epoch_log)
             

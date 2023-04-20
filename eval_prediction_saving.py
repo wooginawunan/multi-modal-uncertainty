@@ -12,14 +12,15 @@ from functools import partial
 logger = logging.getLogger(__name__)
 
 from src import dataset
-from src.model import MIMOResNet
+from src.model import MIMOResNet, model_configure
 from src.training_loop import _load_pretrained_model
 
 # %%
 def get_args(parser):
     parser.add_argument("--checkpoint_path", type=str, required=True, help="Path to load the model")
     parser.add_argument("--model_type", type=str, default="Vanilla", 
-                        choices=["Vanilla", "MIMO-shuffle-instance", "MIMO-shuffle-view", "MultiHead"])
+                        choices=["Vanilla", "MIMO-shuffle-instance", "MIMO-shuffle-view", "MultiHead", 
+                                 "MIMO-shuffle-all", "single-model-weight-sharing"])
     parser.add_argument("--use_gpu", action='store_true')
     parser.add_argument("--device", default=0, type=int)
     parser.add_argument("--save_path", type=str, required=True, help="Path to save the model")
@@ -27,18 +28,16 @@ def get_args(parser):
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--batch_size", type=int, default=64)
 
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Models")
     get_args(parser)
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
     
-    if args.model_type == "Vanilla":
-        out_dim = 1
-    else:
-        out_dim = 4
-    
-    model = MIMOResNet(num_channels=1, emb_dim=4, out_dim=out_dim, num_classes=10)
+    emb_dim, out_dim = model_configure[args.model_type]
+    model = MIMOResNet(num_channels=1, emb_dim=emb_dim, out_dim=out_dim, num_classes=10)
     _, valid, _ = dataset.get_fmnist(
         datapath = os.environ['DATA_DIR'], 
         batch_size=args.batch_size,
@@ -59,10 +58,21 @@ if __name__ == "__main__":
     labels = []
     with torch.no_grad():
         for step, (x, y) in enumerate(valid):
+            b, m = x.shape[0], x.shape[1]
+            x, y = dataset.data_forming_func(x, y, 'eval', model_type=args.model_type)
             x, y = x.to(args.device), y.to(args.device)
             y_hat = model(x)
+            
+            if args.model_type == "single-model-weight-sharing":
+                y_hat = y_hat.view(b, m, y_hat.shape[-1])
+                
             outputs.append(y_hat.data.cpu().numpy())
-            labels.append(y.data.cpu().numpy())
+            
+            if args.model_type == "single-model-weight-sharing":
+                y = y.view(b, m)
+                labels.append(y[:, 0].data.cpu().numpy())
+            else:
+                labels.append(y.data.cpu().numpy())
             
     outputs = np.concatenate(outputs, axis=0)
     S, M, C =  outputs.shape

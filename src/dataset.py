@@ -18,19 +18,17 @@ from torchvision.transforms import functional as F_trans
 
 
 def data_forming_func(x, y, phase, model_type):
-    
+    b, m, c, h, w = x.shape
     if model_type=='Vanilla' and phase=='train':
         y = y.unsqueeze(1).repeat(1, 1)
     
     elif model_type=="single-model-weight-sharing":
-        y = y.unsqueeze(1).repeat(1, 4) # B, 4
+        y = y.unsqueeze(1).repeat(1, m) # B, 4
         y = y.view(-1) # B*4
-        
-        c, h, w = x.shape[2:]
         x = x.view(-1, c, h, w)# B, 4, 1, 14, 14
-        
+
     elif model_type=="MultiHead" and phase=='train':
-        y = y.unsqueeze(1).repeat(1, 4)
+        y = y.unsqueeze(1).repeat(1, m)
         
     elif model_type=="MIMO-shuffle-instance" and phase=='train':
         # x: B, 4, 1, 14, 14
@@ -46,12 +44,12 @@ def data_forming_func(x, y, phase, model_type):
         
     elif model_type=="MIMO-shuffle-view" and phase=='train':
         x = x[:, torch.randperm(x.size(1)), :, :, :]
-        y = y.unsqueeze(1).repeat(1, 4)
+        y = y.unsqueeze(1).repeat(1, m)
     
     elif model_type=="MIMO-shuffle-all" and phase=='train':
         x_new = []
         y_new = []
-        for i in range(4):
+        for i in range(m):
             idx = torch.randperm(x.size(0))
             x_new.append(x[idx, i, :, :, :])
             y_new.append(y[idx])
@@ -62,9 +60,6 @@ def data_forming_func(x, y, phase, model_type):
         ind =  torch.randperm(x.size(1))
         x = x[:, ind, :, :, :]
         y = y[:, ind]
-        
-    else:
-        raise NotImplementedError
     
     return x, y
 

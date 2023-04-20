@@ -5,20 +5,21 @@
 """
 import os
 import torch
+import pandas as pd
 import argparse
 import logging
 from functools import partial
 logger = logging.getLogger(__name__)
 
 from src import dataset
-from src.model import MIMOResNet
+from src.model import MIMOResNet, model_configure
 from src.training_loop import _construct_default_callbacks
 from src.framework import Model_
 
 # %%
 def get_args(parser):
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--wd", type=int, default=0.001)
     parser.add_argument("--momentum", type=int, default=0.9)
     parser.add_argument("--n_epochs", type=int, default=100)
@@ -31,6 +32,7 @@ def get_args(parser):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--patience", type=int, default=10)
+    parser.add_argument("--resume", action='store_true')
 
 def acc(y_pred, y_true, eval):
     
@@ -51,16 +53,7 @@ if __name__ == "__main__":
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
     
-    if args.model_type in ["Vanilla", "single-model-weight-sharing"]:
-        out_dim = 1
-    else:
-        out_dim = 4
-        
-    if args.model_type == "single-model-weight-sharing":
-        emb_dim = 1
-    else:
-        emb_dim = 4
-    
+    emb_dim, out_dim = model_configure[args.model_type]
     model = MIMOResNet(num_channels=1, emb_dim=emb_dim, out_dim=out_dim, num_classes=10)
     train, valid, _ = dataset.get_fmnist(
         datapath = os.environ['DATA_DIR'], 
@@ -87,12 +80,25 @@ if __name__ == "__main__":
     
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
-    history_csv_path = os.path.join(args.save_path, "history.csv")
+        
+    if args.resume:
+        model_last_epoch_path = os.path.join(args.save_path, "model_last_epoch.pt")
+        checkpoint = torch.load(model_last_epoch_path)
+        model.load_state_dict(checkpoint['model'])
+        
+        history_csv_path = os.path.join(args.save_path, "history.csv")
+        H = pd.read_csv(history_csv_path)
+        H = {col: list(H[col].values) for col in H.columns if col != "Unnamed: 0"}
+        
+        epoch_start = len(H['epoch'])+1
+    else:
+        H = {}
+        history_csv_path = os.path.join(args.save_path, "history.csv")
 
-    logger.info("Removing {}".format(history_csv_path))
-    os.system("rm " + history_csv_path)
-
-    H = {}
+        logger.info("Removing {}".format(history_csv_path))
+        os.system("rm " + history_csv_path)
+        epoch_start = 1
+        
     callbacks = _construct_default_callbacks(model, optimizer, H, args.save_path, 
                                              checkpoint_monitor="val_acc")
     
@@ -128,9 +134,10 @@ if __name__ == "__main__":
                         epochs=args.n_epochs - 1, 
                         callbacks=callbacks,
                         patience=args.patience,
+                        epoch_start=epoch_start,
                         )
     
     """
-    python train.py --model_type MultiHead --batch_size 32 --lr 0.01 --verbose 
-ESULTS_DIR/MultiHead_test --use_gpu
+    python train.py --model_type MIMO-shuffle-all --batch_size 32 --lr 0.01 --verbose 
+ESULTS_DIR/MIMO_shuffle_all/0.1 --use_gpu --device 3
     """
