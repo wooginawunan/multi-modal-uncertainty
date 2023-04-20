@@ -4,6 +4,15 @@ import torch.nn as nn
 
 from .layers import BasicBlock
 
+model_configure ={
+    "Vanilla": (4, 1),
+    "MIMO-shuffle-instance": (4, 4),
+    "MIMO-shuffle-view": (4, 4),
+    "MultiHead": (4, 4),
+    "MIMO-shuffle-all": (4, 4),
+    "single-model-weight-sharing": (1, 1)
+}
+
 class ResNet(nn.Module):
     def __init__(self, num_channels, block, layers):
         self.inplanes = 64
