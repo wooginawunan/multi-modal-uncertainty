@@ -1,4 +1,4 @@
-# %%
+# %% Configuration
 from dotenv import load_dotenv
 load_dotenv('../env.sh')
 
@@ -11,7 +11,8 @@ import numpy as np
 
 # Environment variables
 PATH = os.environ['RESULTS_DIR']
-experiments = ['Vanilla', 'MultiHead', 'MIMO_shuffle_instance', 'MIMO_shuffle_view']
+experiments = [ 'Vanilla','single-model-weight-sharing', 'MultiHead', 
+               'MIMO_shuffle_instance', 'MIMO_shuffle_view', 'MIMO_shuffle_all']
 lr = 0.01
 
 
@@ -27,7 +28,7 @@ for exp in experiments:
 all_dfs = pd.concat(all_dfs)
 
 
-# %%
+# %% Loading history files
 sns.set_theme(style="whitegrid")
 sns.set_context("paper", 
                 font_scale=1.5, 
@@ -147,7 +148,7 @@ for exp in experiments[1:]:
 # %%
 for exp in experiments:
     predictions = np.load(os.path.join(
-    PATH, exp, str(lr), 'model_best_val_predictions_robustness.npy'))
+        PATH, exp, str(lr), 'model_best_val_predictions_robustness.npy'))
     labels = np.load(os.path.join(PATH, exp, str(lr), 'model_best_val_labels.npy')) 
 
     num_views = predictions.shape[0]
@@ -165,10 +166,14 @@ for exp in experiments:
             top=5
             preds_muted = [trunk_pred_top(predictions[i, :, j, :], 
                                         labels, top, mute_true=True)\
-                for j in range(num_views)]
+                for j in range(num_views-1 if exp=='single-model-weight-sharing'\
+                    else num_views)]
             taus = subnetwork_wise_kendalltau(preds_muted)
             print(f'\t\tKendall Tau @ Top5 among subnetworks: {taus.mean()}')
-            print('\t\tPairwise Kendall Tau @ Top5:')        
+            print('\t\tPairwise Kendall Tau @ Top5:')       
+            if exp == 'single-model-weight-sharing':
+                continue 
             for x, y in zip([p for p in itertools.combinations("1234", 2)], taus):
-                print('\t\t', x, y)   
+                print('\t\t', x, y) 
+              
 # %%
