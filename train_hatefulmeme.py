@@ -19,7 +19,7 @@ from transformers.optimization import get_cosine_schedule_with_warmup
 
 # %%
 def get_args(parser):
-    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.01)
     parser.add_argument("--wd", type=int, default=0.001)
     parser.add_argument("--momentum", type=int, default=0.9)
@@ -137,6 +137,7 @@ if __name__ == "__main__":
                         patience=args.patience,
                         epoch_start=epoch_start,
                         scheduler_step_on="batch",
+                        auc=True
                         )
     
     """
