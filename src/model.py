@@ -298,8 +298,8 @@ class FlavaFusionTransfomer(nn.Module):
                  text_hidden_size: int = 768,
                  # Multimodal encoder specific parameters
                  multimodal_hidden_size: int = 768,
-                 multimodal_num_attention_heads: int = 12,
-                 multimodal_num_hidden_layers: int = 12,
+                 multimodal_num_attention_heads: int = 6,
+                 multimodal_num_hidden_layers: int = 6,
                  multimodal_dropout: float = 0.1,
                 **kwargs: Any,):
         

@@ -176,7 +176,7 @@ class Model_:
         preds = torch.cat(preds, dim=0).cpu().numpy()
         labels = torch.cat(labels, dim=0).cpu().numpy()
         if auc: 
-            auroc = roc_auc_score(labels, preds)
+            auroc = roc_auc_score(labels, preds[:, 1])
 
         metrics_dict = {
             f'{phase}_{metric_name}' : metric for metric_name, metric in step_iterator.metrics.items()
