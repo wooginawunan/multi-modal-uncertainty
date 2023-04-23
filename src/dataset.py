@@ -6,18 +6,44 @@ testing: 10,000
 20% val: 12,000 
 
 """
-
+from functools import partial
+import pandas as pd
 import numpy as np
 import os
 import logging
 logging.getLogger(__name__)
 
 import torch
-from torchvision import datasets, transforms
+from torch.utils.data import Dataset
+from torch.nn.utils.rnn import pad_sequence
+from torchvision import datasets, transforms 
 from torchvision.transforms import functional as F_trans
 
 
+def data_forming_func_hateful_memes(x, y, phase, model_type):
+    img, txt = x
+    if model_type=='Vanilla' and phase=='train':
+        y = y.unsqueeze(1).repeat(1, 1)
+    
+    elif model_type=="MultiHead" and phase=='train':
+        y = y.unsqueeze(1).repeat(1, 2)
+    
+    elif model_type=="MIMO-shuffle-instance" and phase=='train':
+        idx = torch.randperm(img.size(0))
+        img = img[idx]
+        y_img = y[idx]
+
+        idx = torch.randperm(img.size(0))
+        txt = txt[idx]
+        y_txt = y[idx]
+        
+        y = torch.stack([y_img, y_txt], dim=1)
+    
+    return (img, txt), y
+
+
 def data_forming_func(x, y, phase, model_type):
+
     b, m, c, h, w = x.shape
     if model_type=='Vanilla' and phase=='train':
         y = y.unsqueeze(1).repeat(1, 1)
@@ -60,8 +86,11 @@ def data_forming_func(x, y, phase, model_type):
         ind =  torch.randperm(x.size(1))
         x = x[:, ind, :, :, :]
         y = y[:, ind]
-    
+    else:
+        raise NotImplementedError
+        
     return x, y
+
 
 class QuarterCrop(object):
     """
@@ -135,3 +164,91 @@ def get_fmnist(
     print('training_loader LENGTH:', len(training_loader))
         
     return training_loader, test_loader, None
+
+class FlavaEncodedHatefulMemeDataset(Dataset):
+    def __init__(self, predix_dir, phase):
+
+        self.meta_data = pd.read_json(os.path.join(predix_dir, f"{phase}.jsonl"), lines=True)
+
+        self.emb_dir = os.path.join(predix_dir, 'flava_embeds')
+
+        print(f"Loaded {len(self.meta_data)} samples from {phase} set.")
+        with open(os.path.join(predix_dir, 'flava_embeds', f'{phase}_error_cases.txt'), 'r') as f:
+            error_cases = [int(x) for x in f.read().split('\n')[:-1]]
+        self.meta_data = self.meta_data.drop(labels=error_cases, axis=0)
+
+        print(f"Loaded {len(self.meta_data)} samples from {phase} set after removing {len(error_cases)} error cases.")
+
+    def __len__(self):
+        return len(self.meta_data)
+
+    def __getitem__(self, idx):
+        save_name = self.meta_data.iloc[idx]['img'].split('/')[-1].split('.')[0]
+        label = self.meta_data.iloc[idx]['label']
+
+        img_path = os.path.join(self.emb_dir, save_name+'.img')
+        text_path = os.path.join(self.emb_dir, save_name+'.text')
+        image_emb, text_emb = torch.load(img_path), torch.load(text_path)
+
+        return image_emb, text_emb, label
+
+def collate_fn_pad(batch):
+    imgs, txts, labels = [], [], []
+    for i, t, l in batch:
+        imgs.append(i)
+        txts.append(t)
+        labels.append(l)
+
+    imgs = pad_sequence(imgs, batch_first=True, padding_value=0.)
+    txts = pad_sequence(txts, batch_first=True, padding_value=0.)
+    labels = torch.tensor(labels)
+    return (imgs, txts), labels
+
+def get_hatefulmeme(
+        datapath = os.environ['DATA_DIR'], 
+        batch_size = 128,
+        shuffle = True,
+        sample_size = None,
+        seed=777):
+
+    print(datapath)
+
+    torch.manual_seed(seed)
+    training = FlavaEncodedHatefulMemeDataset(datapath, 'train')
+    dev = FlavaEncodedHatefulMemeDataset(datapath, 'dev')
+    testing = FlavaEncodedHatefulMemeDataset(datapath, 'test')
+
+    num_train = len(training)
+    indices = list(range(num_train))
+    training_idx = indices
+    if sample_size is None:
+        sample_size = len(training)
+    training_idx = training_idx[:sample_size]
+
+    training_sub = torch.utils.data.Subset(training, training_idx)
+
+    training_loader = torch.utils.data.DataLoader(training_sub,
+                                                   #sampler = torch.utils.data.SubsetRandomSampler(),
+                                                   batch_size=batch_size,
+                                                   shuffle=shuffle
+                                                   ) 
+
+    training_loader = torch.utils.data.DataLoader(training,
+                                                   batch_size=batch_size,
+                                                   shuffle=shuffle,
+                                                   collate_fn=collate_fn_pad
+                                                   ) 
+
+    dev_loader = torch.utils.data.DataLoader(dev,
+                                            batch_size=batch_size,
+                                            shuffle=False,
+                                            collate_fn=collate_fn_pad)
+    
+    test_loader = torch.utils.data.DataLoader(testing,
+                                            batch_size=batch_size,
+                                            shuffle=False,
+                                            collate_fn=collate_fn_pad)
+
+    print('training_loader LENGTH:', len(training_loader))
+        
+    return training_loader, dev_loader, test_loader

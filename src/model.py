@@ -4,16 +4,7 @@ from functools import partial
 import math
 import torch
 import torch.nn as nn
-from torch import Tensor
 from src.layers import BasicBlock
-
-from src.transformer import (
-    TransformerEncoder,
-    TransformerOutput,
-    Fp32LayerNorm, 
-    init_transformer_weights
-)
-
 
 model_configure ={
     "Vanilla": (4, 1),
@@ -122,140 +113,234 @@ class MIMOResNet(ResNet):
         return self.loss(y_hat, y)
 
 
-class FLAVATransformerWithoutEmbeddings(nn.Module):
-    def __init__(
-        self,
-        encoder: nn.Module,
-        layernorm: nn.Module,
-        hidden_size: int = 768,
-        weight_init_fn: Optional[Callable] = None,
-        initializer_range: float = 0.02,
-        num_cls_token: int = 1,
-        **kwargs: Any,
-    ):
-        super().__init__()
-        self.encoder = encoder
-        self.layernorm = layernorm
-        if num_cls_token:
-            self.cls_token = nn.Parameter(torch.zeros(1, num_cls_token, hidden_size))
-        else:
-            self.cls_token = None
+# class FLAVATransformerWithoutEmbeddings(nn.Module):
+#     def __init__(
+#         self,
+#         encoder: nn.Module,
+#         layernorm: nn.Module,
+#         hidden_size: int = 768,
+#         weight_init_fn: Optional[Callable] = None,
+#         initializer_range: float = 0.02,
+#         num_cls_token: int = 1,
+#         **kwargs: Any,
+#     ):
+#         super().__init__()
+#         self.encoder = encoder
+#         self.layernorm = layernorm
+#         if num_cls_token:
+#             self.cls_token = nn.Parameter(torch.zeros(1, num_cls_token, hidden_size))
+#         else:
+#             self.cls_token = None
 
-        if weight_init_fn is None:
-            weight_init_fn = partial(
-                init_transformer_weights, initializer_range=initializer_range
-            )
+#         if weight_init_fn is None:
+#             weight_init_fn = partial(
+#                 init_transformer_weights, initializer_range=initializer_range
+#             )
 
-        self.apply(weight_init_fn)
+#         self.apply(weight_init_fn)
 
-    def forward(
-        self,
-        hidden_states: Optional[Tensor] = None,
-        attention_mask: Optional[Tensor] = None,
-    ) -> TransformerOutput:
-        if hidden_states is None:
-            raise ValueError("You have to specify hidden_states")
+#     def forward(
+#         self,
+#         hidden_states: Optional[Tensor] = None,
+#         attention_mask: Optional[Tensor] = None,
+#     ) -> TransformerOutput:
+#         if hidden_states is None:
+#             raise ValueError("You have to specify hidden_states")
 
-        if self.cls_token is not None:
-            batch_size = hidden_states.shape[0]
-            cls_tokens = self.cls_token.expand(batch_size, -1, -1)
-            hidden_states = torch.cat((cls_tokens, hidden_states), dim=1)
+#         if self.cls_token is not None:
+#             batch_size = hidden_states.shape[0]
+#             cls_tokens = self.cls_token.expand(batch_size, -1, -1)
+#             hidden_states = torch.cat((cls_tokens, hidden_states), dim=1)
 
-        encoder_output = self.encoder(
-            hidden_states,
-            attention_mask=attention_mask,
-            return_hidden_states=True,
-            return_attn_weights=True,
-        )
-        sequence_output = encoder_output.last_hidden_state
-        sequence_output = self.layernorm(sequence_output)
+#         encoder_output = self.encoder(
+#             hidden_states,
+#             attention_mask=attention_mask,
+#             return_hidden_states=True,
+#             return_attn_weights=True,
+#         )
+#         sequence_output = encoder_output.last_hidden_state
+#         sequence_output = self.layernorm(sequence_output)
 
-        return TransformerOutput(
-            last_hidden_state=sequence_output,
-            hidden_states=encoder_output.hidden_states,
-            attentions=encoder_output.attentions,
-        )
+#         return TransformerOutput(
+#             last_hidden_state=sequence_output,
+#             hidden_states=encoder_output.hidden_states,
+#             attentions=encoder_output.attentions,
+#         )
     
 
-def flava_multimodal_encoder(
-        hidden_size: int = 768,
-        num_attention_heads: int = 12,
-        num_hidden_layers: int = 12,
-        dropout: float = 0.0,
-        intermediate_size: int = 3072,
-        intermediate_activation: Callable[..., nn.Module] = nn.GELU,
-        layer_norm_eps: float = 1e-12,
-        num_cls_token: int = 1,
-    ) -> FLAVATransformerWithoutEmbeddings:
-        encoder = TransformerEncoder(
-            n_layer=num_hidden_layers,
-            d_model=hidden_size,
-            n_head=num_attention_heads,
-            dim_feedforward=intermediate_size,
-            activation=intermediate_activation,
-            layer_norm_eps=layer_norm_eps,
-            dropout=dropout,
-            norm_first=True,
-        )
-        layernorm = Fp32LayerNorm(hidden_size, eps=layer_norm_eps)
+# def flava_multimodal_encoder(
+#         hidden_size: int = 768,
+#         num_attention_heads: int = 12,
+#         num_hidden_layers: int = 12,
+#         dropout: float = 0.0,
+#         intermediate_size: int = 3072,
+#         intermediate_activation: Callable[..., nn.Module] = nn.GELU,
+#         layer_norm_eps: float = 1e-12,
+#         num_cls_token: int = 1,
+#     ) -> FLAVATransformerWithoutEmbeddings:
+#         encoder = TransformerEncoder(
+#             n_layer=num_hidden_layers,
+#             d_model=hidden_size,
+#             n_head=num_attention_heads,
+#             dim_feedforward=intermediate_size,
+#             activation=intermediate_activation,
+#             layer_norm_eps=layer_norm_eps,
+#             dropout=dropout,
+#             norm_first=True,
+#         )
+#         layernorm = Fp32LayerNorm(hidden_size, eps=layer_norm_eps)
 
-        return FLAVATransformerWithoutEmbeddings(
-            encoder=encoder, 
-            layernorm=layernorm, 
-            hidden_size=hidden_size,
-            num_cls_token=num_cls_token,
-        )
+#         return FLAVATransformerWithoutEmbeddings(
+#             encoder=encoder, 
+#             layernorm=layernorm, 
+#             hidden_size=hidden_size,
+#             num_cls_token=num_cls_token,
+#         )
 
 
+class Mlp(nn.Module):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
+
+class Attention(nn.Module):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
+        self.scale = qk_scale or head_dim ** -0.5
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x, return_attention=False):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)  # 3, B, num_head, N, c
+        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        if return_attention:
+            return x, attn
+        else:
+            return x
+
+class Block(nn.Module):
+
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
+                 drop_after=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.attn = Attention(
+            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        self.drop = nn.Dropout(drop_after)
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
+    def forward(self, x, return_attention=False):
+        if return_attention:
+            y, attn = self.attn(self.norm1(x), return_attention=return_attention)
+            x = x + self.drop(y)
+            x = x + self.drop(self.mlp(self.norm2(x)))
+            return x, attn
+        else:
+            x = x + self.drop(self.attn(self.norm1(x)))
+            x = x + self.drop(self.mlp(self.norm2(x)))
+            return x
+
+class Transformer(nn.Module):
+    def __init__(self, width, layers, heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, 
+                 drop_rate=0., attn_drop_rate=0., drop_after=0., ):
+        super().__init__()
+        self.width = width
+        self.layers = layers
+        self.blocks = nn.ModuleList([
+            Block(
+                dim=width, num_heads=heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_after=drop_after, 
+                norm_layer=nn.LayerNorm)
+            for i in range(layers)])
+
+    def forward(self, x: torch.Tensor):
+        for i in range(len((self.blocks))):
+            x = self.blocks[i](x)
+        return x
+    
 class FlavaFusionTransfomer(nn.Module):
     def __init__(self, 
                  # prediction specific parameters
                  out_dim: int = 1,
-                 num_classes: int = 1000,
+                 num_classes: int = 2,
                  # Multimodal encoder specific parameters
                  image_hidden_size: int = 768,
                  text_hidden_size: int = 768,
                  # Multimodal encoder specific parameters
                  multimodal_hidden_size: int = 768,
                  multimodal_num_attention_heads: int = 12,
-                 multimodal_num_hidden_layers: int = 6,
-                 multimodal_dropout: float = 0.0,
-                 multimodal_intermediate_size: int = 3072,
-                 multimodal_intermediate_activation: Callable[..., nn.Module] = nn.GELU,
-                 multimodal_layer_norm_eps: float = 1e-12,
+                 multimodal_num_hidden_layers: int = 12,
+                 multimodal_dropout: float = 0.1,
                 **kwargs: Any,):
         
         super().__init__()
 
-        self.mm_encoder = flava_multimodal_encoder(
-            hidden_size=multimodal_hidden_size,
-            num_attention_heads=multimodal_num_attention_heads,
-            num_hidden_layers=multimodal_num_hidden_layers,
-            dropout=multimodal_dropout,
-            intermediate_size=multimodal_intermediate_size,
-            intermediate_activation=multimodal_intermediate_activation,
-            layer_norm_eps=multimodal_layer_norm_eps,
-            num_cls_token=out_dim
-        )
+        self.mm_encoder = Transformer(width=multimodal_hidden_size, 
+                                      layers=multimodal_num_hidden_layers, 
+                                      heads=multimodal_num_attention_heads,
+                                      drop_rate=multimodal_dropout, 
+                                      attn_drop_rate=multimodal_dropout, 
+                                      drop_after=multimodal_dropout, )
+        
+        self.ln_pre = nn.LayerNorm(multimodal_hidden_size)
+        self.ln_post = nn.LayerNorm(multimodal_hidden_size)
 
         self.image_to_mm_projection = nn.Linear(image_hidden_size, multimodal_hidden_size)
         self.text_to_mm_projection = nn.Linear(text_hidden_size, multimodal_hidden_size)
 
-        self.output_layers = [nn.Linear(multimodal_hidden_size, num_classes) for i in range(out_dim)]
+        self.output_layers = nn.ModuleList([nn.Linear(multimodal_hidden_size, num_classes) for i in range(out_dim)])
         self.loss = torch.nn.CrossEntropyLoss()
 
-    def forward(self, image_features, text_features):
+    def forward(self, x):
+        image_features, text_features = x
 
         image_features = self.image_to_mm_projection(image_features)
         text_features = self.text_to_mm_projection(text_features)
         multimodal_features = torch.cat((image_features, text_features), dim=1)
-        multimodal_features = self.mm_encoder(multimodal_features)
 
-        hidden_state = multimodal_features.last_hidden_state
+        multimodal_features = self.ln_pre(multimodal_features)
+
+        multimodal_features = multimodal_features.permute(1, 0, 2)  # NLD -> LND
+        out = self.mm_encoder(multimodal_features)
+        out = out.permute(1, 0, 2)  # LND -> NLD
+
+        out = self.ln_post(out)
+        
+        # hidden_state = multimodal_features.last_hidden_state
         
         out_list = []
         for i, fc in enumerate(self.output_layers):
-            out_list.append(fc(hidden_state[:, i]))
+            out_list.append(fc(out[:, i, :]))
         
         out = torch.stack(out_list, dim=1) # (batch_size, ensemble_size, num_classes)
 

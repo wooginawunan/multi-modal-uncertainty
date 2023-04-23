@@ -12,6 +12,8 @@ from src.callbacks import (
 )
 
 import logging
+from sklearn.metrics import roc_auc_score
+
 logger = logging.getLogger(__name__)
 
 warning_settings = {
@@ -130,8 +132,14 @@ class Model_:
                 metric.to(self.device)
 
         return self
+    
+    def to_device(self, x):
+        if isinstance(x, tuple):
+            return [x_.to(self.device) for x_ in x]
+        else:
+            return x.to(self.device)
 
-    def eval_loop(self, generator, phase, *, steps=None):
+    def eval_loop(self, generator, phase, *, steps=None, auc=False):
         if steps is None:
             steps = len(generator)
         
@@ -147,11 +155,14 @@ class Model_:
                         )
 
         self.model.eval()
+
+        preds = []
+        labels = []
         with torch.no_grad():
             for step, (x, y) in step_iterator:
                 step['size'] = len(x)
                 x, y = self.data_forming(x, y, phase='eval')
-                x, y = x.to(self.device), y.to(self.device)
+                x, y = self.to_device(x), self.to_device(y)
                 outputs = self.model(x)
                 loss = self.model.compute_loss(outputs, y, eval=True)
                 info = self._compute_metrics(outputs, y, eval=True)
@@ -159,9 +170,18 @@ class Model_:
                 step['loss'] = float(loss)
                 step.update({'metrics': info})
 
+                preds.append(outputs.mean(1))
+                labels.append(y)
+
+        preds = torch.cat(preds, dim=0).cpu().numpy()
+        labels = torch.cat(labels, dim=0).cpu().numpy()
+        if auc: 
+            auroc = roc_auc_score(labels, preds)
+
         metrics_dict = {
             f'{phase}_{metric_name}' : metric for metric_name, metric in step_iterator.metrics.items()
         }
+        metrics_dict.update({f'{phase}_auc' : auroc}) if auc else None
 
         info_dict = {f'{phase}_loss' : step_iterator.loss, 
             **{f'{phase}_{k}':v for k, v in step_iterator.extra_lists.items()},
@@ -182,6 +202,8 @@ class Model_:
                       patience=10, # early stopping
                       callbacks=[],
                       epoch_start=1,
+                      scheduler_step_on='epoch',
+                      auc=False,
                       ):
         
         self._transfer_optimizer_state_to_right_device()
@@ -215,7 +237,7 @@ class Model_:
                     step['size'] = len(x)
                     self.optimizer.zero_grad()
 
-                    x, y = x.to(self.device), y.to(self.device)
+                    x, y = self.to_device(x), self.to_device(y)
                     y_pred  = self.model(x) # B, E, C
                     loss = self.model.compute_loss(y_pred, y)
                     loss.backward()
@@ -224,6 +246,9 @@ class Model_:
                         info = self._compute_metrics(y_pred, y, eval=False)
                     callback_list.on_backward_end(step['number'])
                     self.optimizer.step()  
+
+                    if scheduler_step_on=='batch':
+                        self.scheduler.step()
                     step.update({'metrics': info})
                     step['loss'] = loss.item()
                     
@@ -234,9 +259,9 @@ class Model_:
                     **train_step_iterator.metrics}
             
             # validation
-            val_dict = self.eval_loop(valid_generator, 'val', steps=validation_steps)
+            val_dict = self.eval_loop(valid_generator, 'val', steps=validation_steps, auc=auc)
             # test
-            test_dict = self.eval_loop(test_generator, 'test', steps=test_steps)
+            test_dict = self.eval_loop(test_generator, 'test', steps=test_steps, auc=auc)
            
             epoch_log = {
                 'epoch': epoch, 
@@ -245,7 +270,8 @@ class Model_:
                 **train_dict, **val_dict, **test_dict
             }
             
-            self.scheduler.step(epoch_log['val_loss'])
+            if scheduler_step_on=='epoch':
+                self.scheduler.step(epoch_log['val_loss'])
              
             callback_list.on_epoch_end(epoch, epoch_log)
             
