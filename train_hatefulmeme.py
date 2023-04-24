@@ -75,7 +75,7 @@ if __name__ == "__main__":
     steps = int(len(train)/args.batch_size)+1
     scheduler = get_cosine_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=steps*10,
+        num_warmup_steps=steps*3,
         num_training_steps=steps*args.n_epochs,
     )
     

@@ -86,8 +86,6 @@ def data_forming_func(x, y, phase, model_type):
         ind =  torch.randperm(x.size(1))
         x = x[:, ind, :, :, :]
         y = y[:, ind]
-    else:
-        raise NotImplementedError
         
     return x, y
 
