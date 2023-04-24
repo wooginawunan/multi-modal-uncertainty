@@ -112,92 +112,6 @@ class MIMOResNet(ResNet):
 
         return self.loss(y_hat, y)
 
-
-# class FLAVATransformerWithoutEmbeddings(nn.Module):
-#     def __init__(
-#         self,
-#         encoder: nn.Module,
-#         layernorm: nn.Module,
-#         hidden_size: int = 768,
-#         weight_init_fn: Optional[Callable] = None,
-#         initializer_range: float = 0.02,
-#         num_cls_token: int = 1,
-#         **kwargs: Any,
-#     ):
-#         super().__init__()
-#         self.encoder = encoder
-#         self.layernorm = layernorm
-#         if num_cls_token:
-#             self.cls_token = nn.Parameter(torch.zeros(1, num_cls_token, hidden_size))
-#         else:
-#             self.cls_token = None
-
-#         if weight_init_fn is None:
-#             weight_init_fn = partial(
-#                 init_transformer_weights, initializer_range=initializer_range
-#             )
-
-#         self.apply(weight_init_fn)
-
-#     def forward(
-#         self,
-#         hidden_states: Optional[Tensor] = None,
-#         attention_mask: Optional[Tensor] = None,
-#     ) -> TransformerOutput:
-#         if hidden_states is None:
-#             raise ValueError("You have to specify hidden_states")
-
-#         if self.cls_token is not None:
-#             batch_size = hidden_states.shape[0]
-#             cls_tokens = self.cls_token.expand(batch_size, -1, -1)
-#             hidden_states = torch.cat((cls_tokens, hidden_states), dim=1)
-
-#         encoder_output = self.encoder(
-#             hidden_states,
-#             attention_mask=attention_mask,
-#             return_hidden_states=True,
-#             return_attn_weights=True,
-#         )
-#         sequence_output = encoder_output.last_hidden_state
-#         sequence_output = self.layernorm(sequence_output)
-
-#         return TransformerOutput(
-#             last_hidden_state=sequence_output,
-#             hidden_states=encoder_output.hidden_states,
-#             attentions=encoder_output.attentions,
-#         )
-    
-
-# def flava_multimodal_encoder(
-#         hidden_size: int = 768,
-#         num_attention_heads: int = 12,
-#         num_hidden_layers: int = 12,
-#         dropout: float = 0.0,
-#         intermediate_size: int = 3072,
-#         intermediate_activation: Callable[..., nn.Module] = nn.GELU,
-#         layer_norm_eps: float = 1e-12,
-#         num_cls_token: int = 1,
-#     ) -> FLAVATransformerWithoutEmbeddings:
-#         encoder = TransformerEncoder(
-#             n_layer=num_hidden_layers,
-#             d_model=hidden_size,
-#             n_head=num_attention_heads,
-#             dim_feedforward=intermediate_size,
-#             activation=intermediate_activation,
-#             layer_norm_eps=layer_norm_eps,
-#             dropout=dropout,
-#             norm_first=True,
-#         )
-#         layernorm = Fp32LayerNorm(hidden_size, eps=layer_norm_eps)
-
-#         return FLAVATransformerWithoutEmbeddings(
-#             encoder=encoder, 
-#             layernorm=layernorm, 
-#             hidden_size=hidden_size,
-#             num_cls_token=num_cls_token,
-#         )
-
-
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
@@ -329,11 +243,7 @@ class FlavaFusionTransfomer(nn.Module):
         multimodal_features = torch.cat((image_features, text_features), dim=1)
 
         multimodal_features = self.ln_pre(multimodal_features)
-
-        multimodal_features = multimodal_features.permute(1, 0, 2)  # NLD -> LND
         out = self.mm_encoder(multimodal_features)
-        out = out.permute(1, 0, 2)  # LND -> NLD
-
         out = self.ln_post(out)
         
         # hidden_state = multimodal_features.last_hidden_state
