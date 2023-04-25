@@ -19,10 +19,9 @@ from transformers.optimization import get_cosine_schedule_with_warmup
 
 # %%
 def get_args(parser):
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--lr", type=float, default=0.01)
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--wd", type=int, default=0.001)
-    parser.add_argument("--momentum", type=int, default=0.9)
     parser.add_argument("--n_epochs", type=int, default=100)
     parser.add_argument("--model_type", type=str, default="Vanilla", 
                         choices=["Vanilla", "MIMO-shuffle-instance", "MultiHead"])
