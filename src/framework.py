@@ -160,7 +160,7 @@ class Model_:
         labels = []
         with torch.no_grad():
             for step, (x, y) in step_iterator:
-                step['size'] = len(x)
+                step['size'] = len(y)
                 x, y = self.data_forming(x, y, phase='eval')
                 x, y = self.to_device(x), self.to_device(y)
                 outputs = self.model(x)
@@ -189,7 +189,7 @@ class Model_:
         }
 
         return info_dict
-
+    
     def train_loop(self,
                       train_generator,
                       test_generator=None,
@@ -234,7 +234,8 @@ class Model_:
                 for step, (x, y) in train_step_iterator: 
                     
                     x, y = self.data_forming(x, y, phase='train')
-                    step['size'] = len(x)
+                    step['size'] = len(y)
+                    print(len(y))
                     self.optimizer.zero_grad()
 
                     x, y = self.to_device(x), self.to_device(y)

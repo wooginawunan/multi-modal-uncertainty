@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from src.layers import BasicBlock
 from collections import OrderedDict
-
+import math
 
 model_configure ={
     "Vanilla": (4, 1),
@@ -170,7 +170,7 @@ class FlavaFusionTransfomer(nn.Module):
                  text_hidden_size: int = 768,
                  # Multimodal encoder specific parameters
                  multimodal_hidden_size: int = 768,
-                 multimodal_num_attention_heads: int = 6,
+                 multimodal_num_attention_heads: int = 3,
                  multimodal_num_hidden_layers: int = 3,
                 **kwargs: Any,):
         
@@ -192,9 +192,17 @@ class FlavaFusionTransfomer(nn.Module):
     def forward(self, x):
         image_features, text_features = x
 
-        image_features = self.image_to_mm_projection(image_features)
-        text_features = self.text_to_mm_projection(text_features)
-        multimodal_features = torch.cat((image_features, text_features), dim=1)
+        if image_features is not None:
+            image_features = self.image_to_mm_projection(image_features)
+        if text_features is not None:
+            text_features = self.text_to_mm_projection(text_features)
+
+        if image_features is None:
+            multimodal_features = text_features
+        elif text_features is None:
+            multimodal_features = image_features
+        else:
+            multimodal_features = torch.cat((image_features, text_features), dim=1)
 
         multimodal_features = self.ln_pre(multimodal_features)
 
@@ -215,13 +223,14 @@ class FlavaFusionTransfomer(nn.Module):
         return out
 
     def compute_loss(self, y_hat, y, eval=False):
-
         assert y.shape[0] == y_hat.shape[0]
         
         y = y.view(-1)
         if not eval:
+            # compute loss per ensemble member
             y_hat = y_hat.view(-1, y_hat.shape[2])
         else:
+            # take the ensemble mean of the predictions
             y_hat = y_hat.mean(1)
 
         return self.loss(y_hat, y)
