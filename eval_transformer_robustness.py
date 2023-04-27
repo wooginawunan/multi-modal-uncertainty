@@ -81,16 +81,16 @@ if __name__ == "__main__":
             outputs = []
             # prediction with image and text
             x, y = torch_to(x, args.device), torch_to(y, args.device)
-            outputs.append(model(x).mean(1))
+            outputs.append(model(x))
 
             img, txt = x
             l_img, l_txt = img.shape[1], txt.shape[1]
 
             # prediction with only image
-            outputs.append(model((img, None)).mean(1))
+            outputs.append(model((img, None)))
 
             # prediction with only text
-            outputs.append(model((None, txt)).mean(1))
+            outputs.append(model((None, txt)))
 
             for type in ["image", "text"]:
                 for i in range(args.n_repeats):
@@ -99,7 +99,7 @@ if __name__ == "__main__":
                     s_img = img[:, indices_img, :] if len(indices_img)>0 else None
                     s_txt = img[:, indices_txt, :] if len(indices_txt)>0 else None
 
-                    outputs.append(model((s_img, s_txt)).mean(1))
+                    outputs.append(model((s_img, s_txt)))
 
             y_hat = torch.stack(outputs, dim=1).cpu()
             preds.append(y_hat)
@@ -108,8 +108,8 @@ if __name__ == "__main__":
     preds = torch.cat(preds, dim=0).numpy()
     labels = torch.cat(labels, dim=0).numpy()
 
-    S, M, C =  preds.shape
-    print('Gathered predictions of {} samples, {} variants, {} classes'.format(S, M, C))
+    S, M, K, C =  preds.shape
+    print('Gathered predictions of {} samples, {} variants, {} heads, {} classes'.format(S, M, K, C))
     
     print('Gathered labels of {} samples'.format(len(labels)))
     
@@ -118,12 +118,30 @@ if __name__ == "__main__":
     np.save(os.path.join(args.save_path, f"robustness_{checkpoint_name}_labels_{args.phase}.npy"), labels)
     
     """
-    python eval_transformer_robustness.py --model_type Vanilla\
+    bsub -q short -Is -n 20 -gpu "num=1:mode=shared:j_exclusive=yes" python eval_transformer_robustness.py --model_type Vanilla\
         --verbose\
-        --save_path $RESULTS_DIR/head3_layer3/clip_transformer/Vanilla/128_0.1\
+        --save_path $RESULTS_DIR/head3_layer3/clip_transformer/Vanilla/32_0.01\
         --use_gpu\
         --device 0\
-        --checkpoint_path $RESULTS_DIR/head3_layer3/clip_transformer/Vanilla/128_0.1/model_last_epoch.pt\
+        --checkpoint_path $RESULTS_DIR/head3_layer3/clip_transformer/Vanilla/32_0.01/model_last_epoch.pt\
+        --batch_size 128\
+        --phase val\
+        --n_repeats 20
+    bsub -q short -Is -n 20 -gpu "num=1:mode=shared:j_exclusive=yes"  python eval_transformer_robustness.py --model_type MIMO-shuffle-instance\
+        --verbose\
+        --save_path $RESULTS_DIR/head3_layer3/clip_transformer/MIMO-shuffle-instance/32_0.01\
+        --use_gpu\
+        --device 0\
+        --checkpoint_path $RESULTS_DIR/head3_layer3/clip_transformer/MIMO-shuffle-instance/32_0.01/model_last_epoch.pt\
+        --batch_size 128\
+        --phase val\
+        --n_repeats 20
+    bsub -q short -Is -n 20 -gpu "num=1:mode=shared:j_exclusive=yes"  python eval_transformer_robustness.py --model_type MultiHead\
+        --verbose\
+        --save_path $RESULTS_DIR/head3_layer3/clip_transformer/MultiHead/32_0.01\
+        --use_gpu\
+        --device 0\
+        --checkpoint_path $RESULTS_DIR/head3_layer3/clip_transformer/MultiHead/32_0.01/model_last_epoch.pt\
         --batch_size 128\
         --phase val\
         --n_repeats 20

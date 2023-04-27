@@ -31,7 +31,7 @@ def get_args(parser):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train Models")
+    parser = argparse.ArgumentParser(description="Eval Models")
     get_args(parser)
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
