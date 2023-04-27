@@ -39,6 +39,7 @@ def _construct_default_callbacks(model, optimizer, H, save_path, checkpoint_moni
     
     def save_weights_fnc(epoch, logs):
         logger.info("Saving model from epoch " + str(epoch))
+        save_weights(model, optimizer, os.path.join(save_path, f"model_epoch_{epoch}.pt"))
         save_weights(model, optimizer, os.path.join(save_path, "model_last_epoch.pt"))
 
     callbacks.append(LambdaCallback(on_epoch_end=save_weights_fnc))
