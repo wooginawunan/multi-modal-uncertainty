@@ -298,17 +298,61 @@ def epoch_wise_analysis(phase, exp, epochs, make_plots=True):
     results_corr = results_corr.drop('epoch', axis=1)
 
     return results_auc, results_corr
-            
+
+from matplotlib.ticker import LinearLocator
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
+def plot_correlation_and_auc(results_corr, full, image, text):
+    plt.figure(figsize=(10, 6))
+    plt.subplots_adjust(hspace=0.15)
+
+    outer = gridspec.GridSpec(2, 1, height_ratios = [4, 3]) 
+    gs1 = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec = outer[0], hspace = .0)
+    gs2 = gridspec.GridSpecFromSubplotSpec(1, 1, subplot_spec = outer[1])
+    
+    # adding axes to the GridSpec to assist the plotting
+    axes = []
+    for cell in gs1:
+        axes.append(plt.subplot(cell))
+
+    for cell in gs2:
+        axes.append(plt.subplot(cell))
+
+    axes[0].plot(results_corr.index, abs(results_corr.image), 'o--', label='image')
+    axes[0].fill_between(results_corr.index, 0, abs(results_corr.image), alpha=0.5)
+    axes[0].set_ylim(0, 1)
+    axes[0].legend()
+
+    axes[1].plot(results_corr.index, abs(results_corr.text), 'o--', color='orange', label='text')
+    axes[1].fill_between(results_corr.index, 0, abs(results_corr.text), color='orange', alpha=0.5)
+    axes[1].set_ylim(0, 1)
+    axes[1].invert_yaxis() 
+    axes[1].legend()
+
+    axes[0].yaxis.set_major_locator(LinearLocator(3))
+    axes[1].yaxis.set_major_locator(LinearLocator(3))
+
+    axes[0].set_ylabel("|Pearson's R|")
+    axes[1].set_ylabel("|Pearson's R|")
+
+    axes[2].plot(results_corr.index, full, '*--', color='gray', label='image+text', alpha=0.8)
+    axes[2].plot(results_corr.index, image, '*--', color=sns.color_palette()[0], label='image', alpha=0.8)
+    axes[2].plot(results_corr.index, text, '*--', color='orange', label='text', alpha=0.8,)
+
+    axes[2].set_xlabel('Epochs')
+    axes[2].set_ylabel("AUROC")
+    axes[2].yaxis.set_major_locator(LinearLocator(4))
+
+    plt.legend(ncol=3, loc='lower center')
+    plt.show()
+
 # %%
-phase = 'test'
-exp = 'head3_layer3/clip_transformer/Vanilla/128_0.1_save_all_checkpoints'
+phase = 'train'
+exp = 'head3_layer3/clip_transformer/Vanilla/128_0.01_save_all_checkpoints'
 epochs = range(1, 100)
 
-results_auc, results_corr = epoch_wise_analysis(phase, exp, epochs, make_plots=True)
-
-# %%
-plt.figure(figsize=(12, 6))
-sns.lineplot(data=results_auc, x="epoch", y="AUC", hue="variants")
+results_auc, results_corr = epoch_wise_analysis(phase, exp, epochs, make_plots=False)
 
 group_by_table = results_auc.groupby(['variants', 'epoch']).mean().reset_index()
 full = group_by_table[group_by_table['variants']=='full'].AUC.values
@@ -317,17 +361,87 @@ image = group_by_table[group_by_table['variants']=='image'].AUC.values
 image_control = group_by_table[group_by_table['variants']=='image_control'].AUC.values
 text_control = group_by_table[group_by_table['variants']=='text_control'].AUC.values
 
-# %%
-plt.plot(image-image_control, color='orange', label ='image')
-plt.plot(text-text_control, color='b', label ='text')
-plt.legend()
-# %%
-plt.plot((image-full)/full, color='orange', label ='image')
-plt.plot((text-full)/full, color='b', label ='text')
-plt.legend()
+plot_correlation_and_auc(results_corr, full, image, text)
 
 # %%
-abs(results_corr).plot(style='o-',)
+exp = 'head3_layer3/clip_transformer/Vanilla/128_0.1_save_all_checkpoints'
+epochs = range(1, 100)
+
+results_auc, results_corr = epoch_wise_analysis(phase, exp, epochs, make_plots=False)
+
+group_by_table = results_auc.groupby(['variants', 'epoch']).mean().reset_index()
+full = group_by_table[group_by_table['variants']=='full'].AUC.values
+text = group_by_table[group_by_table['variants']=='text'].AUC.values
+image = group_by_table[group_by_table['variants']=='image'].AUC.values
+image_control = group_by_table[group_by_table['variants']=='image_control'].AUC.values
+text_control = group_by_table[group_by_table['variants']=='text_control'].AUC.values
+
+plot_correlation_and_auc(results_corr, full, image, text)
 
 
+# %%
+exp = 'head3_layer3/clip_transformer/Vanilla/128_0.1_save_all_checkpoints'
+epochs = range(1, 100)
+
+results_auc, results_corr = epoch_wise_analysis(phase, exp, epochs, make_plots=False)
+
+group_by_table = results_auc.groupby(['variants', 'epoch']).mean().reset_index()
+full = group_by_table[group_by_table['variants']=='full'].AUC.values
+text = group_by_table[group_by_table['variants']=='text'].AUC.values
+image = group_by_table[group_by_table['variants']=='image'].AUC.values
+image_control = group_by_table[group_by_table['variants']=='image_control'].AUC.values
+text_control = group_by_table[group_by_table['variants']=='text_control'].AUC.values
+
+plot_correlation_and_auc(results_corr, full, image, text)
+
+# %%
+phase = 'test'
+exp = 'head3_layer3/clip_transformer/Vanilla/32_0.001_save_all_checkpoints'
+epochs = range(1, 57)
+
+results_auc, results_corr = epoch_wise_analysis(phase, exp, epochs, make_plots=False)
+
+sns.lineplot(data=results_auc, hue='variants', x='epoch', y='AUC')
+
+
+# %%
+phase = 'test'
+exp = 'head3_layer3/clip_transformer/Vanilla/32_0.001_save_all_checkpoints'
+epochs = range(1, 100)
+
+results_auc, results_corr = epoch_wise_analysis(phase, exp, epochs, make_plots=False)
+
+group_by_table = results_auc.groupby(['variants', 'epoch']).mean().reset_index()
+full = group_by_table[group_by_table['variants']=='full'].AUC.values
+text = group_by_table[group_by_table['variants']=='text'].AUC.values
+image = group_by_table[group_by_table['variants']=='image'].AUC.values
+image_control = group_by_table[group_by_table['variants']=='image_control'].AUC.values
+text_control = group_by_table[group_by_table['variants']=='text_control'].AUC.values
+
+plot_correlation_and_auc(results_corr, full, image, text)
+sns.lineplot(data=results_auc, hue='variants', x='epoch', y='AUC')
+
+# %%
+
+def ensemble_overtime(epoches_to_ensemble):
+    predictions = []
+    for epoch in epoches_to_ensemble:
+        checkpoint_name = f'model_epoch_{epoch}'
+        labels, ori, image, text, image_correspondence, text_correspondence = \
+            load_robustness_experiment_results(checkpoint_name, phase, exp)
+        print('@Epoch', epoch, 'AUC=', roc_auc_score(labels, ori))
+        predictions.append(ori)
+    ensemble_predictions = np.array(predictions).mean(0)
+    print(f'Ensemble of {epoches_to_ensemble}', 'AUC=', roc_auc_score(labels, ensemble_predictions))
+
+ensemble_overtime(range(50, 60))
+ensemble_overtime(range(80, 89))
+ensemble_overtime(range(10, 20))
+ensemble_overtime(range(20, 30))
+# %%
+group_by_table.iloc[group_by_table[group_by_table['variants']=='full'].AUC.idxmax()]
+# %%
+txt_epoch = group_by_table.iloc[group_by_table[group_by_table['variants']=='text'].AUC.idxmax()].epoch
+img_epoch = group_by_table.iloc[group_by_table[group_by_table['variants']=='image'].AUC.idxmax()].epoch
+ensemble_overtime([txt_epoch, img_epoch ])
 # %%

@@ -1,3 +1,4 @@
+# %%
 from dotenv import load_dotenv
 load_dotenv('../env.sh')
 
@@ -7,10 +8,10 @@ import seaborn as sns
 import os
 import numpy as np
 
-PATH = os.environ['RESULTS_DIR']
-experiments = [ 'Vanilla', #'MultiHead', 'MIMO-shuffle-instance'
+PATH = os.environ['RESULTS_DIR'].replace('hateful-meme', '/food101')
+experiments = [ '', #'MultiHead', 'MIMO-shuffle-instance'
                ]
-prefix, suffix = 'head3_layer3/clip_transformer', '128_0.01_save_all_checkpoints'
+prefix, suffix = 'head3_layer3/clip_transformer', '128_0.001'
 ### OVERVIEW: performance and learning curves for the first round of experiments
 # Read in the data
 
@@ -75,3 +76,5 @@ plt.savefig(f'hatefulmeme/learning_curves_{prefix.replace("/", "_")}_{suffix}.pn
 
 all_dfs.groupby(['model_type'])[['val_acc', 'val_auc', 'test_acc', 'test_auc']].max().to_csv(f'hatefulmeme/performance_{prefix.replace("/", "_")}_{suffix}.csv')
 
+
+# %%
