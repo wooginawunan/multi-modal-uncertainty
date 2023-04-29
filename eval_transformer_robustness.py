@@ -29,7 +29,9 @@ def get_args(parser):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--n_repeats", type=int, default=20, help="Number of times to repeat the random sampling")
-    
+    parser.add_argument("--multimodal_num_attention_heads", type=int, default=3)
+    parser.add_argument("--multimodal_num_hidden_layers", type=int, default=3)
+
 def input_sampling(l_img, l_txt, type="image"):
     """
     type: image or text
@@ -54,9 +56,15 @@ if __name__ == "__main__":
     assert remaining_args == [], remaining_args
 
     if args.model_type == "Vanilla":
-        model = FlavaFusionTransfomer(out_dim=1)
+        model = FlavaFusionTransfomer(out_dim=1,                  
+                multimodal_num_attention_heads=args.multimodal_num_attention_heads,
+                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers
+                )
     elif args.model_type == "MIMO-shuffle-instance" or args.model_type == "MultiHead":
-        model = FlavaFusionTransfomer(out_dim=2)
+        model = FlavaFusionTransfomer(out_dim=2,
+                multimodal_num_attention_heads=args.multimodal_num_attention_heads,
+                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers
+                )
 
     train, val, test = dataset.get_hatefulmeme(
         datapath = os.environ['DATA_DIR'], 
