@@ -139,7 +139,7 @@ class Model_:
         else:
             return x.to(self.device)
 
-    def eval_loop(self, generator, phase, *, steps=None, auc=False):
+    def eval_loop(self, generator, phase, *, steps=None, auc=False, mmbt=False):
         if steps is None:
             steps = len(generator)
         
@@ -160,10 +160,13 @@ class Model_:
         labels = []
         with torch.no_grad():
             for step, (x, y) in step_iterator:
-                step['size'] = len(x)
+                step['size'] = len(y)
                 x, y = self.data_forming(x, y, phase='eval')
                 x, y = self.to_device(x), self.to_device(y)
-                outputs = self.model(x)
+                if mmbt:
+                    outputs = self.model(*x)
+                else:
+                    outputs = self.model(x)
                 loss = self.model.compute_loss(outputs, y, eval=True)
                 info = self._compute_metrics(outputs, y, eval=True)
                         
@@ -189,7 +192,8 @@ class Model_:
         }
 
         return info_dict
-
+    
+    
     def train_loop(self,
                       train_generator,
                       test_generator=None,
@@ -204,6 +208,8 @@ class Model_:
                       epoch_start=1,
                       scheduler_step_on='epoch',
                       auc=False,
+                      mmbt=False,
+                      args={},
                       ):
         
         self._transfer_optimizer_state_to_right_device()
@@ -214,12 +220,16 @@ class Model_:
         callback_list.set_model_pytoune(self)
         
         stop_training = False
-        
-        stopped_epoch, counter = 0, 0
+        stopped_epoch, counter, global_step = 0, 0, 0
     
         callback_list.on_train_begin({})
         val_dict, test_dict = {}, {}
         for epoch in range(epoch_start, epochs+1):
+
+            if mmbt:
+                freeze_img = epoch < args.freeze_img
+                freeze_txt = epoch < args.freeze_txt
+        
             callback_list.on_epoch_begin(epoch, {})
             
             epoch_begin_time = timeit.default_timer()
@@ -230,22 +240,43 @@ class Model_:
                                                self.metrics_names,
                                                )
             self.model.train(True)
+            
             with torch.enable_grad():
                 for step, (x, y) in train_step_iterator: 
-                    
                     x, y = self.data_forming(x, y, phase='train')
-                    step['size'] = len(x)
-                    self.optimizer.zero_grad()
-
+                    step['size'] = len(y)
                     x, y = self.to_device(x), self.to_device(y)
-                    y_pred  = self.model(x) # B, E, C
+
+                    if mmbt:
+                        self.optimizer.zero_grad()
+                        for param in self.model.enc.img_encoder.parameters():
+                            param.requires_grad = not freeze_img
+                        for param in self.model.enc.encoder.parameters():
+                            param.requires_grad = not freeze_txt
+                        y_pred = self.model(*x)
+                    else:
+                        self.optimizer.zero_grad()
+                        y_pred = self.model(x)
+                        
                     loss = self.model.compute_loss(y_pred, y)
+                    
+                    if mmbt:
+                        if (args.gradient_accumulation_steps > 1):
+                            loss = loss / args.gradient_accumulation_steps
+
                     loss.backward()
 
+                    if mmbt:
+                        global_step += 1
+                        if global_step % args.gradient_accumulation_steps == 0:
+                            self.optimizer.step()
+                            self.optimizer.zero_grad()
+                    else:
+                        self.optimizer.step()
+                        
                     with torch.no_grad():
-                        info = self._compute_metrics(y_pred, y, eval=False)
+                        info = self._compute_metrics(y_pred, y, eval=False)  
                     callback_list.on_backward_end(step['number'])
-                    self.optimizer.step()  
 
                     if scheduler_step_on=='batch':
                         self.scheduler.step()
@@ -259,9 +290,9 @@ class Model_:
                     **train_step_iterator.metrics}
             
             # validation
-            val_dict = self.eval_loop(valid_generator, 'val', steps=validation_steps, auc=auc)
+            val_dict = self.eval_loop(valid_generator, 'val', steps=validation_steps, auc=auc, mmbt=mmbt)
             # test
-            test_dict = self.eval_loop(test_generator, 'test', steps=test_steps, auc=auc)
+            test_dict = self.eval_loop(test_generator, 'test', steps=test_steps, auc=auc, mmbt=mmbt)
            
             epoch_log = {
                 'epoch': epoch, 

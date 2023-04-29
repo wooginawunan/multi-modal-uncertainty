@@ -8,6 +8,18 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
+import random
+import numpy as np
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
 class Fork(object):
     def __init__(self, file1, file2):
         self.file1 = file1
@@ -151,3 +163,19 @@ def configure_logger(name='',
     logger.info("Logging configured!")
 
     return logger
+
+@contextmanager
+def numpy_seed(seed, *addl_seeds):
+    """Context manager which seeds the NumPy PRNG with the specified seed and
+    restores the state afterward"""
+    if seed is None:
+        yield
+        return
+    if len(addl_seeds) > 0:
+        seed = int(hash((seed, *addl_seeds)) % 1e6)
+    state = np.random.get_state()
+    np.random.seed(seed)
+    try:
+        yield
+    finally:
+        np.random.set_state(state)
