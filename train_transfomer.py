@@ -32,6 +32,9 @@ def get_args(parser):
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--resume", action='store_true')
+    parser.add_argument("--multimodal_num_attention_heads", type=int, default=3)
+    parser.add_argument("--multimodal_num_hidden_layers", type=int, default=3)
+    parser.add_argument("--dataset", type=str, choices=["food101", "hateful-meme-dataset"], default="hateful-meme-dataset")
 
 def acc(y_pred, y_true, eval):
     
@@ -52,16 +55,33 @@ if __name__ == "__main__":
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
 
-    if args.model_type == "Vanilla":
-        model = FlavaFusionTransfomer(out_dim=1)
-    elif args.model_type == "MIMO-shuffle-instance" or args.model_type == "MultiHead":
-        model = FlavaFusionTransfomer(out_dim=2)
+    if args.dataset == "food101":
+        dataset_func = dataset.get_food101_flava
+        auc = False
+    elif args.dataset == "hateful-meme-dataset":
+        dataset_func = dataset.get_hatefulmeme
+        auc = True
 
-    train, valid, test = dataset.get_hatefulmeme(
-        datapath = os.environ['DATA_DIR'], 
+    train, valid, test = dataset_func(
+        datapath = os.path.join(os.environ['DATA_DIR'], args.dataset), 
         batch_size=args.batch_size,
         shuffle = True,
         seed=args.seed)
+    
+    if args.model_type == "Vanilla":
+        model = FlavaFusionTransfomer(out_dim=1,                  
+                num_classes=2 if args.dataset == "hateful-meme-dataset" else train.dataset.num_classes,
+                multimodal_num_attention_heads=args.multimodal_num_attention_heads,
+                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers
+                )
+    elif args.model_type == "MIMO-shuffle-instance" or args.model_type == "MultiHead":
+        model = FlavaFusionTransfomer(out_dim=2,
+                num_classes=2 if args.dataset == "hateful-meme-dataset" else train.dataset.num_classes,
+                multimodal_num_attention_heads=args.multimodal_num_attention_heads,
+                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers
+                )
+
+    
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -111,7 +131,7 @@ if __name__ == "__main__":
     model = Model_(model=model, 
         optimizer=optimizer, 
         scheduler=scheduler,
-        data_forming_func=partial(dataset.data_forming_func_hateful_memes, 
+        data_forming_func=partial(dataset.data_forming_func_transformer, 
                                   model_type=args.model_type),
         metrics=[acc],
         verbose=args.verbose,
@@ -131,12 +151,12 @@ if __name__ == "__main__":
                         steps_per_epoch=len(train),
                         validation_steps=len(valid),
                         test_steps=len(test),
-                        epochs=args.n_epochs - 1, 
+                        epochs=args.n_epochs, 
                         callbacks=callbacks,
                         patience=args.patience,
                         epoch_start=epoch_start,
                         scheduler_step_on="batch",
-                        auc=True
+                        auc=auc
                         )
     
     """
