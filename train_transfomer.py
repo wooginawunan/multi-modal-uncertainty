@@ -35,6 +35,7 @@ def get_args(parser):
     parser.add_argument("--multimodal_num_attention_heads", type=int, default=3)
     parser.add_argument("--multimodal_num_hidden_layers", type=int, default=3)
     parser.add_argument("--dataset", type=str, choices=["food101", "hateful-meme-dataset"], default="hateful-meme-dataset")
+    parser.add_argument("--sample_size", type=int, default=None)
 
 def acc(y_pred, y_true, eval):
     
@@ -66,6 +67,7 @@ if __name__ == "__main__":
         datapath = os.path.join(os.environ['DATA_DIR'], args.dataset), 
         batch_size=args.batch_size,
         shuffle = True,
+        sample_size = args.sample_size,
         seed=args.seed)
     
     if args.model_type == "Vanilla":
@@ -80,8 +82,6 @@ if __name__ == "__main__":
                 multimodal_num_attention_heads=args.multimodal_num_attention_heads,
                 multimodal_num_hidden_layers=args.multimodal_num_hidden_layers
                 )
-
-    
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
