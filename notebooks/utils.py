@@ -153,7 +153,6 @@ def visuals_per_model(outcomes, save_folder, checkpoint_name):
     scatter_plot_instance_level(axs[1], *outcomes)
     fig.tight_layout()
     fig.savefig(os.path.join(save_folder, f"{checkpoint_name}.png"))
-    fig.close()
 
 def load_robustness_experiment_results(checkpoint_name, phase, exp, dataset):
     predictions = np.load(os.path.join(
@@ -217,64 +216,66 @@ def draw_learning_curves(experiments, prefix, suffix, dataset, auc=True):
     all_dfs = []
     for exp in experiments:
         try:
-        #    df = pd.read_csv(os.path.join(PATH, 'updated_encoder', exp, 'history.csv'))
+            #df = pd.read_csv(os.path.join(PATH, 'updated_encoder', exp, 'history.csv'))
             df = pd.read_csv(os.path.join(PATH, dataset, prefix, exp, suffix, 'history.csv'))
             df['model_type'] = exp
             all_dfs.append(df)
         except FileNotFoundError:
             print(f"File not found for {exp}")
+            continue
         
-    all_dfs = pd.concat(all_dfs)
+    if len(all_dfs)>0:
+        all_dfs = pd.concat(all_dfs)
 
-    sns.set_theme(style="whitegrid")
-    sns.set_context("paper", 
-                    font_scale=1.5, 
-                    rc={"lines.linewidth": 2.5})
+        sns.set_theme(style="whitegrid")
+        sns.set_context("paper", 
+                        font_scale=1.5, 
+                        rc={"lines.linewidth": 2.5})
 
-    fig, axs = plt.subplots(3 if auc else 2, 3, figsize=(15, 8))
-    sns.lineplot(x="epoch", y="loss",
-                hue="model_type",
-                ax = axs[0, 0],
-                data=all_dfs)
-
-    sns.lineplot(x="epoch", y="val_loss",
-                hue="model_type",
-                ax = axs[0, 1],
-                data=all_dfs)
-
-    sns.lineplot(x="epoch", y="test_loss",
-                hue="model_type",
-                ax = axs[0, 2],
-                data=all_dfs)
-
-    sns.lineplot(x="epoch", y="acc",
-                hue="model_type",
-                ax = axs[1, 0],
-                data=all_dfs)
-
-    sns.lineplot(x="epoch", y="val_acc",
-                hue="model_type",
-                ax = axs[1, 1],
-                data=all_dfs)
-
-    sns.lineplot(x="epoch", y="test_acc",
-                hue="model_type",
-                ax = axs[1, 2],
-                data=all_dfs)
-
-    if auc:
-        sns.lineplot(x="epoch", y="val_auc",
+        fig, axs = plt.subplots(3 if auc else 2, 3, figsize=(15, 8))
+        sns.lineplot(x="epoch", y="loss",
                     hue="model_type",
-                    ax = axs[2, 1],
+                    ax = axs[0, 0],
                     data=all_dfs)
 
-        sns.lineplot(x="epoch", y="test_auc",
+        sns.lineplot(x="epoch", y="val_loss",
                     hue="model_type",
-                    ax = axs[2, 2],
+                    ax = axs[0, 1],
                     data=all_dfs)
 
-    plt.tight_layout()
-    fig.suptitle(f'{dataset} {prefix} {suffix}')
-    plt.savefig(f'{dataset}/learning_curves_{prefix.replace("/", "_")}_{suffix}.png')
-    plt.show()
+        sns.lineplot(x="epoch", y="test_loss",
+                    hue="model_type",
+                    ax = axs[0, 2],
+                    data=all_dfs)
+
+        sns.lineplot(x="epoch", y="acc",
+                    hue="model_type",
+                    ax = axs[1, 0],
+                    data=all_dfs)
+
+        sns.lineplot(x="epoch", y="val_acc",
+                    hue="model_type",
+                    ax = axs[1, 1],
+                    data=all_dfs)
+
+        sns.lineplot(x="epoch", y="test_acc",
+                    hue="model_type",
+                    ax = axs[1, 2],
+                    data=all_dfs)
+
+        if auc:
+            sns.lineplot(x="epoch", y="val_auc",
+                        hue="model_type",
+                        ax = axs[2, 1],
+                        data=all_dfs)
+
+            sns.lineplot(x="epoch", y="test_auc",
+                        hue="model_type",
+                        ax = axs[2, 2],
+                        data=all_dfs)
+
+        plt.tight_layout()
+        fig.suptitle(f'{dataset} {prefix} {suffix}')
+        plt.savefig(f'{dataset}/learning_curves_{prefix.replace("/", "_")}_{suffix}.png')
+        plt.show()
     return all_dfs
