@@ -12,7 +12,7 @@ from functools import partial
 logger = logging.getLogger(__name__)
 
 from src import dataset
-from src.model import MIMOResNet, model_configure
+from src.model import MIMOResNet, model_configure, MIMOTransfomer
 from src.training_loop import _load_pretrained_model
 
 # %%
@@ -27,7 +27,10 @@ def get_args(parser):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--batch_size", type=int, default=64)
-
+    parser.add_argument("--multimodal_num_attention_heads", type=int, default=3)
+    parser.add_argument("--multimodal_num_hidden_layers", type=int, default=3)
+    parser.add_argument("--transformer", action='store_true')
+    parser.add_argument("--dropout", type=float, default=0)
 
 
 if __name__ == "__main__":
@@ -37,7 +40,24 @@ if __name__ == "__main__":
     assert remaining_args == [], remaining_args
     
     emb_dim, out_dim = model_configure[args.model_type]
-    model = MIMOResNet(num_channels=1, emb_dim=emb_dim, out_dim=out_dim, num_classes=10)
+    if args.transformer:
+        assert args.model_type == "MultiHead" or args.model_type == "MIMO-shuffle-instance"
+        model = MIMOTransfomer(
+                    out_dim=out_dim, 
+                    num_classes=10,
+                    image_dim=14*14,
+                    hidden_size=768,
+                    multimodal_num_attention_heads=args.multimodal_num_attention_heads,
+                    multimodal_num_hidden_layers=args.multimodal_num_hidden_layers,
+                    drop=args.dropout,
+                )
+    else:
+        model = MIMOResNet(
+                num_channels=1, 
+                emb_dim=emb_dim, 
+                out_dim=out_dim, 
+                num_classes=10
+            )
     _, valid, _ = dataset.get_fmnist(
         datapath = os.environ['DATA_DIR'], 
         batch_size=args.batch_size,

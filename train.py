@@ -9,10 +9,12 @@ import pandas as pd
 import argparse
 import logging
 from functools import partial
+from pytorch_pretrained_bert import BertAdam
+
 logger = logging.getLogger(__name__)
 
 from src import dataset
-from src.model import MIMOResNet, model_configure
+from src.model import MIMOResNet, model_configure, MIMOTransfomer
 from src.training_loop import _construct_default_callbacks
 from src.framework import Model_
 
@@ -33,6 +35,11 @@ def get_args(parser):
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--patience", type=int, default=10)
     parser.add_argument("--resume", action='store_true')
+    parser.add_argument("--multimodal_num_attention_heads", type=int, default=3)
+    parser.add_argument("--multimodal_num_hidden_layers", type=int, default=3)
+    parser.add_argument("--transformer", action='store_true')
+    parser.add_argument("--warmup", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0)
 
 def acc(y_pred, y_true, eval):
     
@@ -52,31 +59,74 @@ if __name__ == "__main__":
     get_args(parser)
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
-    
+
     emb_dim, out_dim = model_configure[args.model_type]
-    model = MIMOResNet(num_channels=1, emb_dim=emb_dim, out_dim=out_dim, num_classes=10)
+
+    if args.transformer:
+        assert args.model_type == "MultiHead" or args.model_type == "MIMO-shuffle-instance"
+        model = MIMOTransfomer(
+                    out_dim=out_dim, 
+                    num_classes=10,
+                    image_dim=14*14,
+                    hidden_size=768,
+                    multimodal_num_attention_heads=args.multimodal_num_attention_heads,
+                    multimodal_num_hidden_layers=args.multimodal_num_hidden_layers,
+                    drop=args.dropout,
+                )
+    else:
+        model = MIMOResNet(
+                num_channels=1, 
+                emb_dim=emb_dim, 
+                out_dim=out_dim, 
+                num_classes=10
+            )
+
     train, valid, _ = dataset.get_fmnist(
         datapath = os.environ['DATA_DIR'], 
         batch_size=args.batch_size,
         download = True, 
         shuffle = True,
         seed=args.seed)
-
-    optimizer = torch.optim.SGD(model.parameters(), 
-        lr=args.lr, 
-        weight_decay=args.wd, 
-        momentum=args.momentum)
     
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
-        mode='min', 
-        factor=0.1, 
-        patience=10, 
-        verbose=True, 
-        threshold=0.0001, 
-        threshold_mode='rel', 
-        cooldown=0, 
-        min_lr=0, 
-        eps=1e-08)
+    if args.transformer:
+        total_steps = len(train) * args.n_epochs
+        print("Total steps: ", total_steps)
+        param_optimizer = list(model.named_parameters())
+        no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+        optimizer_grouped_parameters = [
+            {"params": [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], "weight_decay": 0.01},
+            {"params": [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], "weight_decay": 0.0,},
+        ]
+        optimizer = BertAdam(
+            optimizer_grouped_parameters,
+            lr=args.lr,
+            warmup=args.warmup,
+            t_total=total_steps,
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, "max", patience=10, verbose=True, factor=0.5
+        )
+        args.scheduler_metric = 'val_acc'
+
+    else:
+
+        optimizer = torch.optim.SGD(model.parameters(), 
+            lr=args.lr, 
+            weight_decay=args.wd, 
+            momentum=args.momentum)
+    
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
+            mode='min', 
+            factor=0.1, 
+            patience=10, 
+            verbose=True, 
+            threshold=0.0001, 
+            threshold_mode='rel', 
+            cooldown=0, 
+            min_lr=0, 
+            eps=1e-08)
+        
+        args.scheduler_metric = 'val_loss'
     
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
@@ -135,9 +185,8 @@ if __name__ == "__main__":
                         callbacks=callbacks,
                         patience=args.patience,
                         epoch_start=epoch_start,
+                        scheduler_step_on="epoch",
+                        auc=False,
+                        args=args
                         )
     
-    """
-    python train.py --model_type MIMO-shuffle-all --batch_size 32 --lr 0.01 --verbose 
-ESULTS_DIR/MIMO_shuffle_all/0.1 --use_gpu --device 3
-    """
