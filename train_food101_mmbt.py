@@ -79,7 +79,7 @@ if __name__ == "__main__":
 
     model = MultimodalBertClf(args)
 
-    total_steps = len(train) / args.batch_size / args.gradient_accumulation_steps * args.n_epochs
+    total_steps = len(train) / args.gradient_accumulation_steps * args.n_epochs
     param_optimizer = list(model.named_parameters())
     no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
@@ -127,7 +127,19 @@ if __name__ == "__main__":
         clbk.set_model(model, ignore=False)  # TODO: Remove this trick
         clbk.set_optimizer(optimizer)
 
-    def data_forming_func(x, y, eval=False, phase="train"):
+    def data_forming_func(x, y, model_type, eval=False, phase="train"):
+
+        if model_type=='Vanilla':
+            return x, y
+        elif model_type=='MultiHead':
+            text_tensor, segment_tensor, mask_tensor, img_tensor = x
+            tgt_tensor = y
+
+            
+        elif model_type=='MIMO-shuffle-instance':
+            text_tensor, segment_tensor, mask_tensor, img_tensor, tgt_tensor = x
+            tgt_tensor = y
+
         return x, y
         
     model = Model_(model=model, 
