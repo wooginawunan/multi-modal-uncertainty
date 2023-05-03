@@ -127,6 +127,112 @@ class MultimodalBertEncoder(nn.Module):
 
         return self.pooler(encoded_layers[-1])
 
+    def forward_img_only(self, input_txt, attention_mask, segment, input_img):
+        bsz = input_txt.size(0)
+        device = input_txt.device
+        attention_mask = torch.ones(bsz, self.args.num_image_embeds + 2).long().to(device)
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+        extended_attention_mask = extended_attention_mask.to(
+            dtype=next(self.parameters()).dtype
+        )
+        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+
+        img_tok = (
+            torch.LongTensor(bsz, self.args.num_image_embeds + 2)
+            .fill_(0)
+            .to(device)
+        )
+        img = self.img_encoder(input_img)  # BxNx3x224x224 -> BxNx2048
+        img_embed_out = self.img_embeddings(img, img_tok)
+
+        encoded_layers = self.encoder(
+            img_embed_out, extended_attention_mask, output_all_encoded_layers=False
+        )
+
+        return self.pooler(encoded_layers[-1])
+
+    def forward_txt_only(self, input_txt, attention_mask, segment, input_img):
+        bsz = input_txt.size(0)
+        device = input_txt.device
+        attention_mask = torch.cat(
+            [
+                torch.ones(bsz, 1).long().to(device),
+                attention_mask,
+            ],
+            dim=1,
+        )
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+        extended_attention_mask = extended_attention_mask.to(
+            dtype=next(self.parameters()).dtype
+        )
+        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+
+        img_tok = (
+            torch.LongTensor(bsz, self.args.num_image_embeds + 2)
+            .fill_(0)
+            .to(device)
+        )
+        img = self.img_encoder(input_img)  # BxNx3x224x224 -> BxNx2048
+        img_embed_out = self.img_embeddings(img, img_tok)
+        txt_embed_out = self.txt_embeddings(input_txt, segment)
+        encoder_input = torch.cat([img_embed_out[:, :1, :], txt_embed_out], 1)  # Bx(TEXT+IMG)xHID
+
+        encoded_layers = self.encoder(
+            encoder_input, extended_attention_mask, output_all_encoded_layers=False
+        )
+
+        return self.pooler(encoded_layers[-1])
+    
+    def forward_control(self, input_txt, attention_mask, segment, input_img, control_modal):
+        bsz = input_txt.size(0)
+        device = input_txt.device
+        total_embeds = input_txt.size(1) + self.args.num_image_embeds + 2
+
+        if control_modal == "image":
+            num_embeds = self.args.num_image_embeds + 1 # remain CLS token
+        elif control_modal == "text":
+            num_embeds = input_txt.size(1)
+        else:
+            raise ValueError("control_modal must be either image or text")
+        
+        indices = torch.zeros(num_embeds+1) # keep CLS token
+        ind_sampled, _ = torch.sort(torch.randperm(total_embeds-1)[:num_embeds]+1)
+        indices[1:] = ind_sampled
+        indices = indices.long()
+        
+        attention_mask = torch.cat(
+            [
+                torch.ones(bsz, self.args.num_image_embeds + 2).long().to(device),
+                attention_mask,
+            ],
+            dim=1,
+        )
+
+        attention_mask = attention_mask[:, indices]
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+        extended_attention_mask = extended_attention_mask.to(
+            dtype=next(self.parameters()).dtype
+        )
+        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+
+        img_tok = (
+            torch.LongTensor(bsz, self.args.num_image_embeds + 2)
+            .fill_(0)
+            .to(device)
+        )
+        img = self.img_encoder(input_img)  # BxNx3x224x224 -> BxNx2048
+        img_embed_out = self.img_embeddings(img, img_tok)
+        txt_embed_out = self.txt_embeddings(input_txt, segment)
+        encoder_input = torch.cat([img_embed_out, txt_embed_out], 1)  # Bx(TEXT+IMG)xHID
+
+        encoded_layers = self.encoder(
+            encoder_input[:, indices, :], 
+            extended_attention_mask, 
+            output_all_encoded_layers=False
+        )
+
+        return self.pooler(encoded_layers[-1])
+
 
 class MultimodalBertClf(nn.Module):
     def __init__(self, args):
@@ -139,6 +245,18 @@ class MultimodalBertClf(nn.Module):
     def forward(self, txt, mask, segment, img):
         x = self.enc(txt, mask, segment, img)
         return self.clf(x)
+    
+    def forward_img_only(self, txt, mask, segment, img):
+        x = self.enc.forward_img_only(txt, mask, segment, img)
+        return self.clf(x)
+
+    def forward_txt_only(self, txt, mask, segment, img):
+        x = self.enc.forward_txt_only(txt, mask, segment, img)
+        return self.clf(x)
+    
+    def forward_control(self, txt, mask, segment, img, control_modal):
+        x = self.enc.forward_control(txt, mask, segment, img, control_modal)
+        return self.clf(x)  
     
     def compute_loss(self, y_hat, y, eval=False):
         return self.loss(y_hat, y)

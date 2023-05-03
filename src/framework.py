@@ -139,7 +139,7 @@ class Model_:
         else:
             return x.to(self.device)
 
-    def eval_loop(self, generator, phase, *, steps=None, auc=False, mmbt=False):
+    def eval_loop(self, generator, phase, *, steps=None, auc=False, mmbt=False, vilt=False):
         if steps is None:
             steps = len(generator)
         
@@ -159,15 +159,25 @@ class Model_:
         preds = []
         labels = []
         with torch.no_grad():
-            for step, (x, y) in step_iterator:
-                step['size'] = len(y)
-                x, y = self.data_forming(x, y, phase='eval')
-                x, y = self.to_device(x), self.to_device(y)
-                if mmbt:
-                    outputs = self.model(*x)
+            for step, batch in step_iterator:
+                if vilt:
+                    batch = {k:v.to(self.device) for k,v in batch.items()}
+                    outputs = self.model(**batch)
+                    loss = outputs.loss
+                    outputs = outputs.logits
+                    y = batch['labels']
+                    
                 else:
-                    outputs = self.model(x)
-                loss = self.model.compute_loss(outputs, y, eval=True)
+                    x, y = batch
+                    x, y = self.data_forming(x, y, phase='eval')
+                    x, y = self.to_device(x), self.to_device(y)
+                    if mmbt:
+                        outputs = self.model(*x)
+                    else:
+                        outputs = self.model(x)
+                    loss = self.model.compute_loss(outputs, y, eval=True)
+                
+                step['size'] = len(y)
                 info = self._compute_metrics(outputs, y, eval=True)
                         
                 step['loss'] = float(loss)
@@ -210,6 +220,7 @@ class Model_:
                       auc=False,
                       mmbt=False,
                       args={},
+                      vilt=False,
                       ):
         
         self._transfer_optimizer_state_to_right_device()
@@ -242,31 +253,45 @@ class Model_:
             self.model.train(True)
             
             with torch.enable_grad():
-                for step, (x, y) in train_step_iterator: 
-                    x, y = self.data_forming(x, y, phase='train')
-                    step['size'] = len(y)
-                    x, y = self.to_device(x), self.to_device(y)
+                for step, batch in train_step_iterator: 
+                    if vilt:
+                        batch = {k:v.to(self.device) for k,v in batch.items()}
+                        y = batch['labels']
+                        # zero the parameter gradients
+                        self.optimizer.zero_grad()
 
-                    if mmbt:
-                        self.optimizer.zero_grad()
-                        for param in self.model.enc.img_encoder.parameters():
-                            param.requires_grad = not freeze_img
-                        for param in self.model.enc.encoder.parameters():
-                            param.requires_grad = not freeze_txt
-                        y_pred = self.model(*x)
-                    else:
-                        self.optimizer.zero_grad()
-                        y_pred = self.model(x)
+                        # forward + backward + optimize
+                        outputs = self.model(**batch)
+                        y_pred = outputs.logits
+                        loss = outputs.loss
                         
-                    loss = self.model.compute_loss(y_pred, y)
+                    else:
+
+                        x, y = batch
+                        x, y = self.data_forming(x, y, phase='train')
+                        x, y = self.to_device(x), self.to_device(y)
+
+                        if mmbt:
+                            self.optimizer.zero_grad()
+                            for param in self.model.enc.img_encoder.parameters():
+                                param.requires_grad = not freeze_img
+                            for param in self.model.enc.encoder.parameters():
+                                param.requires_grad = not freeze_txt
+                            y_pred = self.model(*x)
+                        else:
+                            self.optimizer.zero_grad()
+                            y_pred = self.model(x)
+                            
+                        loss = self.model.compute_loss(y_pred, y)
                     
-                    if mmbt:
+                    step['size'] = len(y)
+                    if mmbt or vilt:
                         if (args.gradient_accumulation_steps > 1):
                             loss = loss / args.gradient_accumulation_steps
 
                     loss.backward()
 
-                    if mmbt:
+                    if mmbt or vilt:
                         global_step += 1
                         if global_step % args.gradient_accumulation_steps == 0:
                             self.optimizer.step()
@@ -302,7 +327,7 @@ class Model_:
             }
             
             if scheduler_step_on=='epoch':
-                self.scheduler.step(epoch_log['val_loss'])
+                self.scheduler.step(epoch_log[args.scheduler_metric])
              
             callback_list.on_epoch_end(epoch, epoch_log)
             
