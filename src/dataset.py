@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Simple data getters. Each returns iterator for train and dataset for test/valid
-training: 60,000
-testing: 10,000
-20% val: 12,000 
+Dataset for involved datasets:
+- Hateful Memes Challenge
+- Fashion MNIST
+- Food101
 
 """
 import pandas as pd
@@ -11,6 +11,7 @@ import numpy as np
 import os
 import logging
 from collections import Counter
+from functools import partial
 logging.getLogger(__name__)
 
 import torch
@@ -20,12 +21,18 @@ from torchvision import datasets, transforms
 from torchvision.transforms import functional as F_trans
 from pytorch_pretrained_bert import BertTokenizer
 
+from transformers import ViltProcessor
+
 import json
 from PIL import Image
 from .utils import  numpy_seed
 
-
 def data_forming_func_transformer(x, y, phase, model_type):
+    """ transform the batch data according to the model type 
+        - Vanilla: (B, 1) -> (B, 1)
+        - MultiHead: (B, 1) -> (B, num_view)
+        - MIMO-shuffle-instance: (B, num_view) -> (B, num_view) (shuffle the instance per view)
+    """
     img, txt = x
     if model_type=='Vanilla' and phase=='train':
         y = y.unsqueeze(1).repeat(1, 1)
@@ -45,7 +52,6 @@ def data_forming_func_transformer(x, y, phase, model_type):
         y = torch.stack([y_img, y_txt], dim=1)
     
     return (img, txt), y
-
 
 def data_forming_func(x, y, phase, model_type):
 
@@ -97,7 +103,7 @@ def data_forming_func(x, y, phase, model_type):
 
 class QuarterCrop(object):
     """
-    Input size is 28*28 for fasion MNIST    
+    Input size is 28*28 for fashion MNIST    
     """
 
     def __init__(self, expected_size):
@@ -118,7 +124,6 @@ class QuarterCrop(object):
         starts_x = [0, 0, self.crop_size_w, self.crop_size_h]
         starts_y = [0, self.crop_size_h, 0, self.crop_size_h]
         
-        
         return [F_trans.crop(img, i, j, self.crop_size_h, self.crop_size_w) for i, j in zip(starts_x, starts_y)]
 
 def get_fmnist(
@@ -135,7 +140,7 @@ def get_fmnist(
         1 - upper right
         2 - lower left
         3 - lower right
-    
+    No other data augmentation is applied.
     '''
     print(datapath)
 
@@ -168,32 +173,55 @@ def get_fmnist(
         
     return training_loader, test_loader, None
 
-class FlavaEncodedHatefulMemeDataset(Dataset):
-    def __init__(self, predix_dir, phase):
+class FlavaEncodedDataset(Dataset):
+    def __init__(self, predix_dir, phase, error_cases_remover=True):
 
         self.meta_data = pd.read_json(os.path.join(predix_dir, f"{phase}.jsonl"), lines=True)
 
         self.emb_dir = os.path.join(predix_dir, 'flava_embeds')
 
         print(f"Loaded {len(self.meta_data)} samples from {phase} set.")
-        with open(os.path.join(predix_dir, 'flava_embeds', f'{phase}_error_cases.txt'), 'r') as f:
-            error_cases = [int(x) for x in f.read().split('\n')[:-1]]
-        self.meta_data = self.meta_data.drop(labels=error_cases, axis=0)
 
-        print(f"Loaded {len(self.meta_data)} samples from {phase} set after removing {len(error_cases)} error cases.")
+        if error_cases_remover:
+            with open(os.path.join(predix_dir, 'flava_embeds', f'{phase}_error_cases.txt'), 'r') as f:
+                error_cases = [int(x) for x in f.read().split('\n')[:-1]]
+            self.meta_data = self.meta_data.drop(labels=error_cases, axis=0)
+
+            print(f"Loaded {len(self.meta_data)} samples from {phase} set after removing {len(error_cases)} error cases.")
 
     def __len__(self):
         return len(self.meta_data)
 
-    def __getitem__(self, idx):
-        save_name = self.meta_data.iloc[idx]['img'].split('/')[-1].split('.')[0]
-        label = self.meta_data.iloc[idx]['label']
-
+    def load_img_txt(self, save_name, idx):
         img_path = os.path.join(self.emb_dir, save_name+'.img')
         text_path = os.path.join(self.emb_dir, save_name+'.text')
-        image_emb, text_emb = torch.load(img_path), torch.load(text_path)
+        label = self.meta_data.iloc[idx]['label']
+        return torch.load(img_path), torch.load(text_path), label
+    
+class FlavaEncodedFood101Dataset(FlavaEncodedDataset):
+    def __init__(self, predix_dir, phase):
+        super().__init__(predix_dir, phase, error_cases_remover=False)
 
+        labels, _ = get_labels_and_frequencies(
+            os.path.join(predix_dir, "train.jsonl")
+        )
+        self.labels = labels 
+        self.num_classes = len(labels)
+
+    def __getitem__(self, idx):
+        save_name = self.meta_data.iloc[idx]['img'].split('.')[0]
+        image_emb, text_emb, label = self.load_img_txt(save_name, idx)
+        label = torch.LongTensor([self.labels.index(label)])
+        
         return image_emb, text_emb, label
+
+class FlavaEncodedHatefulMemeDataset(FlavaEncodedDataset):
+    def __init__(self, predix_dir, phase):
+        super().__init__(predix_dir, phase, error_cases_remover=True)
+    
+    def __getitem__(self, idx):
+        save_name = self.meta_data.iloc[idx]['img'].split('/')[-1].split('.')[0]
+        return self.load_img_txt(save_name, idx)
 
 def collate_fn_pad(batch):
     imgs, txts, labels = [], [], []
@@ -207,134 +235,154 @@ def collate_fn_pad(batch):
     labels = torch.tensor(labels)
     return (imgs, txts), labels
 
-def get_hatefulmeme(
-        datapath = os.environ['DATA_DIR'], 
-        batch_size = 128,
-        shuffle = True,
-        sample_size = None,
-        seed=777):
+def get_dataset(training, dev, testing, collate_func, args):
 
-    print(datapath)
-
-    torch.manual_seed(seed)
-    training = FlavaEncodedHatefulMemeDataset(datapath, 'train')
-    dev = FlavaEncodedHatefulMemeDataset(datapath, 'dev')
-    testing = FlavaEncodedHatefulMemeDataset(datapath, 'test')
-
+    torch.manual_seed(args.seed)
     num_train = len(training)
     indices = list(range(num_train))
     training_idx = indices
-    if sample_size is None:
+
+    if args.sample_size is None: 
         sample_size = len(training)
+    else:
+        sample_size = args.sample_size
+
     training_idx = training_idx[:sample_size]
 
     training_sub = torch.utils.data.Subset(training, training_idx)
 
     training_loader = torch.utils.data.DataLoader(training_sub,
-                                                   #sampler = torch.utils.data.SubsetRandomSampler(),
-                                                   batch_size=batch_size,
-                                                   shuffle=shuffle
-                                                   ) 
-
-    training_loader = torch.utils.data.DataLoader(training,
-                                                   batch_size=batch_size,
-                                                   shuffle=shuffle,
-                                                   collate_fn=collate_fn_pad
+                                                   batch_size=args.batch_size,
+                                                   shuffle=True,
+                                                   collate_fn=collate_func
                                                    ) 
 
     dev_loader = torch.utils.data.DataLoader(dev,
-                                            batch_size=batch_size,
+                                            batch_size=args.batch_size,
                                             shuffle=False,
-                                            collate_fn=collate_fn_pad)
+                                            collate_fn=collate_func)
     
     test_loader = torch.utils.data.DataLoader(testing,
-                                            batch_size=batch_size,
+                                            batch_size=args.batch_size,
                                             shuffle=False,
-                                            collate_fn=collate_fn_pad)
+                                            collate_fn=collate_func)
 
     print('training_loader LENGTH:', len(training_loader))
         
     return training_loader, dev_loader, test_loader
 
+def get_hatefulmeme_flava(args, datapath = os.environ['DATA_DIR']):
+    
+    training = FlavaEncodedHatefulMemeDataset(datapath, 'train')
+    dev = FlavaEncodedHatefulMemeDataset(datapath, 'dev')
+    testing = FlavaEncodedHatefulMemeDataset(datapath, 'test')
 
-class FlavaEncodedFood101Dataset(Dataset):
-    def __init__(self, predix_dir, phase):
+    return get_dataset(training, dev, testing, collate_fn_pad, args)
 
-        labels, _ = get_labels_and_frequencies(
-            os.path.join(predix_dir, "train.jsonl")
-        )
-        self.labels = labels 
-        self.num_classes = len(labels)
+def get_food101_flava(args, datapath = os.environ['DATA_DIR'], ):
+    
+    training = FlavaEncodedFood101Dataset(datapath, 'train')
+    dev = FlavaEncodedFood101Dataset(datapath, 'dev')
+    testing = FlavaEncodedFood101Dataset(datapath, 'test')
+
+    return get_dataset(training, dev, testing, collate_fn_pad, args)
+
+
+class VILTDataset(torch.utils.data.Dataset):
+    """HatefulMemeDataset."""
+
+    def __init__(self, predix_dir, phase, processor, 
+                 label_dict=None, error_cases_remover=False):
+
         self.meta_data = pd.read_json(os.path.join(predix_dir, f"{phase}.jsonl"), lines=True)
+        if error_cases_remover:
+            with open(os.path.join(predix_dir, 'flava_embeds', f'{phase}_error_cases.txt'), 'r') as f:
+                error_cases = [int(x) for x in f.read().split('\n')[:-1]]
+            self.meta_data = self.meta_data.drop(labels=error_cases, axis=0)
+            print(f"Loaded {len(self.meta_data)} samples from {phase} set after removing {len(error_cases)} error cases.")
 
-        self.emb_dir = os.path.join(predix_dir, 'flava_embeds')
-        print(f"Loaded {len(self.meta_data)} samples from {phase} set.")
+        self.processor = processor
+        self.data_path = predix_dir
+        self.label_dict = label_dict
 
     def __len__(self):
         return len(self.meta_data)
 
     def __getitem__(self, idx):
-        save_name = self.meta_data.iloc[idx]['img'].split('.')[0]
-
-        img_path = os.path.join(self.emb_dir, save_name+'.img')
-        text_path = os.path.join(self.emb_dir, save_name+'.text')
-        image_emb, text_emb = torch.load(img_path), torch.load(text_path)
-
-        label = torch.LongTensor(
-                [self.labels.index(self.meta_data.iloc[idx]['label'])]
-            )
-
-        return image_emb, text_emb, label
-
-
-def get_food101_flava(
-        datapath = os.environ['DATA_DIR'], 
-        batch_size = 128,
-        shuffle = True,
-        sample_size = None,
-        seed=777):
-
-    print(datapath)
-
-    torch.manual_seed(seed)
-    training = FlavaEncodedFood101Dataset(datapath, 'train')
-    dev = FlavaEncodedFood101Dataset(datapath, 'dev')
-    testing = FlavaEncodedFood101Dataset(datapath, 'test')
-
-    num_train = len(training)
-    indices = list(range(num_train))
-    training_idx = indices
-    if sample_size is None:
-        sample_size = len(training)
-    training_idx = training_idx[:sample_size]
-
-    training_sub = torch.utils.data.Subset(training, training_idx)
-
-    training_loader = torch.utils.data.DataLoader(training_sub,
-                                                   batch_size=batch_size,
-                                                   shuffle=shuffle
-                                                   ) 
-
-    training_loader = torch.utils.data.DataLoader(training,
-                                                   batch_size=batch_size,
-                                                   shuffle=shuffle,
-                                                   collate_fn=collate_fn_pad
-                                                   ) 
-
-    dev_loader = torch.utils.data.DataLoader(dev,
-                                            batch_size=batch_size,
-                                            shuffle=False,
-                                            collate_fn=collate_fn_pad)
-    
-    test_loader = torch.utils.data.DataLoader(testing,
-                                            batch_size=batch_size,
-                                            shuffle=False,
-                                            collate_fn=collate_fn_pad)
-
-    print('training_loader LENGTH:', len(training_loader))
+        # get image + text
+        image_path, text = self.meta_data.iloc[idx][['img', 'text']]
+        image = Image.open(os.path.join(self.data_path, image_path))
         
-    return training_loader, dev_loader, test_loader
+        encoding = self.processor(image, 
+                                  text, 
+                                  padding="max_length", 
+                                  truncation=True, 
+                                  return_tensors="pt")
+        
+        # remove batch dimension
+        for k,v in encoding.items():
+            encoding[k] = v.squeeze()
 
+        # add labels
+        encoding["labels"] = self.meta_data.iloc[idx]['label']
+        if self.label_dict is not None:
+            encoding["labels"] = torch.LongTensor([self.label_dict.index(encoding["labels"])])
+        else:
+            encoding["labels"] =  torch.LongTensor([encoding["labels"]])
+        return encoding
+
+def collate_fn_vilt(batch, processor):
+    input_ids = [item['input_ids'] for item in batch]
+    pixel_values = [item['pixel_values'] for item in batch]
+    attention_mask = [item['attention_mask'] for item in batch]
+    token_type_ids = [item['token_type_ids'] for item in batch]
+    labels = [item['labels'] for item in batch]
+    
+    # create padded pixel values and corresponding pixel mask
+    encoding = processor.feature_extractor.pad_and_create_pixel_mask(pixel_values, return_tensors="pt")
+    
+    # create new batch
+    batch = {}
+    batch['input_ids'] = torch.stack(input_ids)
+    batch['attention_mask'] = torch.stack(attention_mask)
+    batch['token_type_ids'] = torch.stack(token_type_ids)
+    batch['pixel_values'] = encoding['pixel_values']
+    batch['pixel_mask'] = encoding['pixel_mask'].unsqueeze(1) # add dummy num_images dimensiono
+    batch['labels'] = torch.stack(labels)
+    
+    return batch
+    
+def get_hatefulmeme_vilt(args, datapath = os.environ['DATA_DIR']):
+    processor = ViltProcessor.from_pretrained("dandelin/vilt-b32-mlm")
+
+    training = VILTDataset(datapath, 'train', 
+                           processor=processor, error_cases_remover=True)
+    dev = VILTDataset(datapath, 'dev', 
+                      processor=processor, error_cases_remover=True)
+    testing = VILTDataset(datapath, 'test', 
+                          processor=processor, error_cases_remover=True)
+    
+    training_loader, dev_loader, test_loader = get_dataset(training, dev, testing, 
+                       partial(collate_fn_vilt, processor=processor), 
+                       args)
+
+    return 2, training_loader, dev_loader, test_loader
+
+def get_food101_vilt(args, datapath = os.environ['DATA_DIR']):
+    processor = ViltProcessor.from_pretrained("dandelin/vilt-b32-mlm")
+    labels, _ = get_labels_and_frequencies(
+                os.path.join(datapath, "train.jsonl")
+            )
+    
+    training = VILTDataset(datapath, 'train', processor=processor, label_dict=labels)
+    dev = VILTDataset(datapath, 'dev', processor=processor, label_dict=labels)
+    testing = VILTDataset(datapath, 'test', processor=processor, label_dict=labels)
+
+    training_loader, dev_loader, test_loader = get_dataset(training, dev, testing, 
+                       partial(collate_fn_vilt, processor=processor), 
+                       args)
+
+    return len(labels), training_loader, dev_loader, test_loader
 
 class JsonlDataset(Dataset):
     def __init__(self, data_path, tokenizer, transforms, vocab, n_classes, 
