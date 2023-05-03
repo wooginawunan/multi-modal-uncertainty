@@ -16,7 +16,6 @@ from transformers import ViltForImagesAndTextClassification
 logger = logging.getLogger(__name__)
 
 from src import dataset
-from src.mmbt import MultimodalBertClf
 from src.training_loop import _construct_default_callbacks
 from src.framework import Model_
 from src.utils import set_seed
@@ -41,6 +40,28 @@ def get_args(parser):
     parser.add_argument("--sample_size", type=int, default=None)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=40)
 
+def add_conditional_args(args):
+    datapath = os.path.join(os.environ['DATA_DIR'], args.dataset)
+    if args.dataset == "food101":
+
+        args.labels, _ = dataset.get_labels_and_frequencies(
+                os.path.join(datapath, "train.jsonl")
+            )
+        args.n_classes = len(args.labels)
+
+        args.auc = False
+        args.error_cases_remover = False
+        
+    elif args.dataset == "hateful-meme-dataset":
+        
+        args.labels = list(range(2))
+        args.n_classes = 2
+        
+        args.auc = True
+        args.error_cases_remover = True
+
+    return args
+    
 def acc(y_pred, y_true, eval):
     _, y_pred = y_pred.max(1)
     acc_pred = (y_pred == y_true).float().mean()
@@ -52,28 +73,25 @@ if __name__ == "__main__":
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
 
+    args = add_conditional_args(args)
+
     set_seed(args.seed)
-    
-    if args.dataset == "food101":
-        dataset_func = dataset.get_food101_vilt
-        auc = False
-    elif args.dataset == "hateful-meme-dataset":
-        dataset_func = dataset.get_hatefulmeme_vilt
-        auc = True
+
     print(args)
+    train, valid, test = dataset.get_dataset_vilt(
+        args, os.path.join(os.environ['DATA_DIR'], args.dataset))
 
-    args.n_classes, train, valid, test = dataset_func(
-        args, datapath=os.path.join(os.environ['DATA_DIR'], args.dataset) 
-    )
-
-    model = ViltForImagesAndTextClassification.from_pretrained("dandelin/vilt-b32-mlm",
-                                                    num_labels=args.n_classes, num_images=1)
+    model = ViltForImagesAndTextClassification.from_pretrained(
+        "dandelin/vilt-b32-mlm", 
+        num_labels=args.n_classes, 
+        num_images=1)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, "max", patience=args.lr_patience, verbose=True, factor=args.lr_factor
     )
+    args.scheduler_metric = 'val_acc'
 
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
@@ -132,19 +150,19 @@ if __name__ == "__main__":
                         patience=args.patience,
                         epoch_start=epoch_start,
                         scheduler_step_on="epoch",
-                        auc=False,
+                        auc=args.auc,
                         vilt=True,
                         args=args
                         )
     
 """
 
-bsub -q short -Is -n 20 -gpu "num=1:mode=shared:j_exclusive=yes" python train_vilt.py --use_gpu --device 0 \
+bsub -n 20 -gpu "num=1:mode=shared:j_exclusive=yes" python train_vilt.py --use_gpu --device 0 \
 --save_path $RESULTS_DIR/food101/vilt/Vanilla/32_3e-5 \
 --lr 3e-5 --batch_size 4 --dataset food101  
 
 bsub -q gpu32 -n 20 -gpu "num=1:mode=shared:j_exclusive=yes" python train_vilt.py --use_gpu --device 0 \
---save_path $RESULTS_DIR/hateful-meme-dataset/vilt/Vanilla/32_3e-5 \
+--save_path $RESULTS_DIR/hateful-meme/vilt/Vanilla/32_3e-5 \
 --lr 3e-5 --batch_size 4 --dataset hateful-meme-dataset 
 
 

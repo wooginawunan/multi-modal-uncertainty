@@ -12,7 +12,7 @@ from functools import partial
 logger = logging.getLogger(__name__)
 
 from src import dataset
-from src.model import FlavaFusionTransfomer
+from src.model import FlavaFusionTransfomer, FlavaFusionTransfomerwithCLSToken
 from src.training_loop import _construct_default_callbacks
 from src.framework import Model_
 from transformers.optimization import get_cosine_schedule_with_warmup
@@ -36,6 +36,35 @@ def get_args(parser):
     parser.add_argument("--multimodal_num_hidden_layers", type=int, default=3)
     parser.add_argument("--dataset", type=str, choices=["food101", "hateful-meme-dataset"], default="hateful-meme-dataset")
     parser.add_argument("--sample_size", type=int, default=None)
+    parser.add_argument("--clstoken", action='store_true')
+    parser.add_argument("--dropout", type=float, default=0)
+    parser.add_argument("--avg_pool", action='store_true')
+
+def add_conditional_args(args):
+    datapath = os.path.join(os.environ['DATA_DIR'], args.dataset)
+    if args.dataset == "food101":
+
+        args.labels, _ = dataset.get_labels_and_frequencies(
+                os.path.join(datapath, "train.jsonl")
+            )
+        args.n_classes = len(args.labels)
+
+        args.auc = False
+        args.error_cases_remover = False
+
+        args.name_extractor = lambda x: x.split('.')[0]
+        
+    elif args.dataset == "hateful-meme-dataset":
+        
+        args.labels = list(range(2))
+        args.n_classes = 2
+        
+        args.auc = True
+        args.error_cases_remover = True
+
+        args.name_extractor = lambda x: x.split('/')[-1].split('.')[0]
+
+    return args
 
 def acc(y_pred, y_true, eval):
     
@@ -56,31 +85,33 @@ if __name__ == "__main__":
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
 
-    if args.dataset == "food101":
-        dataset_func = dataset.get_food101_flava
-        auc = False
-    elif args.dataset == "hateful-meme-dataset":
-        dataset_func = dataset.get_hatefulmeme
-        auc = True
+    args = add_conditional_args(args)
 
-    train, valid, test = dataset_func(
-        datapath = os.path.join(os.environ['DATA_DIR'], args.dataset), 
-        batch_size=args.batch_size,
-        shuffle = True,
-        sample_size = args.sample_size,
-        seed=args.seed)
+    print(args)
     
+    train, valid, test = dataset.get_dataset_flava(
+        args, os.path.join(os.environ['DATA_DIR'], args.dataset))
+
+    model_func = FlavaFusionTransfomerwithCLSToken if args.clstoken else FlavaFusionTransfomer
+
+    if args.avg_pool:
+        assert args.model_type != "Vanilla", "avg_pool is NOT supported for Vanilla model"
+
     if args.model_type == "Vanilla":
-        model = FlavaFusionTransfomer(out_dim=1,                  
-                num_classes=2 if args.dataset == "hateful-meme-dataset" else train.dataset.num_classes,
+        model = model_func(out_dim=1,                  
+                num_classes=args.n_classes,
                 multimodal_num_attention_heads=args.multimodal_num_attention_heads,
-                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers
+                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers,
+                drop=args.dropout,
+                avg_pool=args.avg_pool
                 )
     elif args.model_type == "MIMO-shuffle-instance" or args.model_type == "MultiHead":
-        model = FlavaFusionTransfomer(out_dim=2,
-                num_classes=2 if args.dataset == "hateful-meme-dataset" else train.dataset.num_classes,
+        model = model_func(out_dim=2,
+                num_classes=args.n_classes,
                 multimodal_num_attention_heads=args.multimodal_num_attention_heads,
-                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers
+                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers,
+                drop=args.dropout,
+                avg_pool=args.avg_pool
                 )
 
     optimizer = torch.optim.AdamW(
@@ -91,11 +122,10 @@ if __name__ == "__main__":
         weight_decay=args.wd,
     )
 
-    steps = int(len(train)/args.batch_size)+1
     scheduler = get_cosine_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=steps*3,
-        num_training_steps=steps*args.n_epochs,
+        num_warmup_steps=len(train)*3,
+        num_training_steps=len(train)*args.n_epochs,
     )
     
     if not os.path.exists(args.save_path):
@@ -156,10 +186,6 @@ if __name__ == "__main__":
                         patience=args.patience,
                         epoch_start=epoch_start,
                         scheduler_step_on="batch",
-                        auc=auc
+                        auc=args.auc
                         )
     
-    """
-    python train.py --model_type MIMO-shuffle-all --batch_size 32 --lr 0.01 --verbose 
-ESULTS_DIR/MIMO_shuffle_all/0.1 --use_gpu --device 3
-    """

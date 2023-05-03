@@ -183,7 +183,11 @@ class Model_:
                 step['loss'] = float(loss)
                 step.update({'metrics': info})
 
-                preds.append(outputs.mean(1))
+                if vilt:
+                    preds.append(outputs)
+                else:
+                    preds.append(outputs.mean(1))
+                    
                 labels.append(y)
 
         preds = torch.cat(preds, dim=0).cpu().numpy()
@@ -315,9 +319,11 @@ class Model_:
                     **train_step_iterator.metrics}
             
             # validation
-            val_dict = self.eval_loop(valid_generator, 'val', steps=validation_steps, auc=auc, mmbt=mmbt)
+            val_dict = self.eval_loop(valid_generator, 'val', steps=validation_steps, 
+                                      auc=auc, mmbt=mmbt, vilt=vilt)
             # test
-            test_dict = self.eval_loop(test_generator, 'test', steps=test_steps, auc=auc, mmbt=mmbt)
+            test_dict = self.eval_loop(test_generator, 'test', steps=test_steps, auc=auc, 
+                                       mmbt=mmbt, vilt=vilt)
            
             epoch_log = {
                 'epoch': epoch, 
