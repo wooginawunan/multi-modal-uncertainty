@@ -108,8 +108,8 @@ class Model_:
         self.verbose = verbose
         self.verbose_logs = {} 
 
-    def _compute_metrics(self, pred_y, y, eval):
-        return np.array([float(metric(pred_y, y, eval)) for metric in self.metrics])
+    def _compute_metrics(self, pred_y, y, eval, dummy_dim):
+        return np.array([float(metric(pred_y, y, eval, dummy_dim)) for metric in self.metrics])
 
     def _transfer_optimizer_state_to_right_device(self):
         # Since the optimizer state is loaded on CPU, it will crashed when the
@@ -178,7 +178,9 @@ class Model_:
                     loss = self.model.compute_loss(outputs, y, eval=True)
                 
                 step['size'] = len(y)
-                info = self._compute_metrics(outputs, y, eval=True)
+                info = self._compute_metrics(outputs, y, 
+                                             eval=True, 
+                                             dummy_dim=False if vilt or mmbt else True)    
                         
                 step['loss'] = float(loss)
                 step.update({'metrics': info})
@@ -223,8 +225,8 @@ class Model_:
                       scheduler_step_on='epoch',
                       auc=False,
                       mmbt=False,
-                      args={},
                       vilt=False,
+                      **kwargs
                       ):
         
         self._transfer_optimizer_state_to_right_device()
@@ -242,8 +244,8 @@ class Model_:
         for epoch in range(epoch_start, epochs+1):
 
             if mmbt:
-                freeze_img = epoch < args.freeze_img
-                freeze_txt = epoch < args.freeze_txt
+                freeze_img = epoch < kwargs["freeze_img"]
+                freeze_txt = epoch < kwargs["freeze_txt"]
         
             callback_list.on_epoch_begin(epoch, {})
             
@@ -290,21 +292,23 @@ class Model_:
                     
                     step['size'] = len(y)
                     if mmbt or vilt:
-                        if (args.gradient_accumulation_steps > 1):
-                            loss = loss / args.gradient_accumulation_steps
+                        if (kwargs["gradient_accumulation_steps"] > 1):
+                            loss = loss / kwargs["gradient_accumulation_steps"]
 
                     loss.backward()
 
                     if mmbt or vilt:
                         global_step += 1
-                        if global_step % args.gradient_accumulation_steps == 0:
+                        if global_step % kwargs["gradient_accumulation_steps"] == 0:
                             self.optimizer.step()
                             self.optimizer.zero_grad()
                     else:
                         self.optimizer.step()
                         
                     with torch.no_grad():
-                        info = self._compute_metrics(y_pred, y, eval=False)  
+                        info = self._compute_metrics(y_pred, y, 
+                                                     eval=False,
+                                                     dummy_dim=False if vilt or mmbt else True)
                     callback_list.on_backward_end(step['number'])
 
                     if scheduler_step_on=='batch':
@@ -333,7 +337,7 @@ class Model_:
             }
             
             if scheduler_step_on=='epoch':
-                self.scheduler.step(epoch_log[args.scheduler_metric])
+                self.scheduler.step(epoch_log[kwargs["scheduler_metric"]])
              
             callback_list.on_epoch_end(epoch, epoch_log)
             

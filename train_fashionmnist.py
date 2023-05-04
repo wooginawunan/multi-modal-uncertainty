@@ -9,22 +9,25 @@ import pandas as pd
 import argparse
 import logging
 from functools import partial
+from pytorch_pretrained_bert import BertAdam
+
 logger = logging.getLogger(__name__)
 
 from src import dataset
-from src.model import FlavaFusionTransfomer, FlavaFusionTransfomerwithCLSToken
+from src.model import MIMOResNet, model_configure, MIMOTransfomer
 from src.training_loop import _construct_default_callbacks
 from src.framework import Model_
-from transformers.optimization import get_cosine_schedule_with_warmup
 
 # %%
 def get_args(parser):
-    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--wd", type=int, default=0.001)
+    parser.add_argument("--momentum", type=int, default=0.9)
     parser.add_argument("--n_epochs", type=int, default=100)
     parser.add_argument("--model_type", type=str, default="Vanilla", 
-                        choices=["Vanilla", "MIMO-shuffle-instance", "MultiHead"])
+                        choices=["Vanilla", "MIMO-shuffle-instance", "MIMO-shuffle-view", "MultiHead", 
+                                 "MIMO-shuffle-all", "single-model-weight-sharing"])
     parser.add_argument("--use_gpu", action='store_true')
     parser.add_argument("--device", default=0, type=int)
     parser.add_argument("--save_path", type=str, required=True, help="Path to save the model")
@@ -34,37 +37,9 @@ def get_args(parser):
     parser.add_argument("--resume", action='store_true')
     parser.add_argument("--multimodal_num_attention_heads", type=int, default=3)
     parser.add_argument("--multimodal_num_hidden_layers", type=int, default=3)
-    parser.add_argument("--dataset", type=str, choices=["food101", "hateful-meme-dataset"], default="hateful-meme-dataset")
-    parser.add_argument("--sample_size", type=int, default=None)
-    parser.add_argument("--clstoken", action='store_true')
+    parser.add_argument("--transformer", action='store_true')
+    parser.add_argument("--warmup", type=float, default=0.1)
     parser.add_argument("--dropout", type=float, default=0)
-    parser.add_argument("--avg_pool", action='store_true')
-
-def add_conditional_args(args):
-    datapath = os.path.join(os.environ['DATA_DIR'], args.dataset)
-    if args.dataset == "food101":
-
-        args.labels, _ = dataset.get_labels_and_frequencies(
-                os.path.join(datapath, "train.jsonl")
-            )
-        args.n_classes = len(args.labels)
-
-        args.auc = False
-        args.error_cases_remover = False
-
-        args.name_extractor = lambda x: x.split('.')[0]
-        
-    elif args.dataset == "hateful-meme-dataset":
-        
-        args.labels = list(range(2))
-        args.n_classes = 2
-        
-        args.auc = True
-        args.error_cases_remover = True
-
-        args.name_extractor = lambda x: x.split('/')[-1].split('.')[0]
-
-    return args
 
 def acc(y_pred, y_true, eval):
     
@@ -85,48 +60,73 @@ if __name__ == "__main__":
     args, remaining_args = parser.parse_known_args()
     assert remaining_args == [], remaining_args
 
-    args = add_conditional_args(args)
+    emb_dim, out_dim = model_configure[args.model_type]
 
-    print(args)
+    if args.transformer:
+        assert args.model_type == "MultiHead" or args.model_type == "MIMO-shuffle-instance"
+        model = MIMOTransfomer(
+                    out_dim=out_dim, 
+                    num_classes=10,
+                    image_dim=14*14,
+                    hidden_size=768,
+                    multimodal_num_attention_heads=args.multimodal_num_attention_heads,
+                    multimodal_num_hidden_layers=args.multimodal_num_hidden_layers,
+                    drop=args.dropout,
+                )
+    else:
+        model = MIMOResNet(
+                num_channels=1, 
+                emb_dim=emb_dim, 
+                out_dim=out_dim, 
+                num_classes=10
+            )
+
+    train, valid, _ = dataset.get_fmnist(
+        datapath = os.environ['DATA_DIR'], 
+        batch_size=args.batch_size,
+        download = True, 
+        shuffle = True,
+        seed=args.seed)
     
-    train, valid, test = dataset.get_dataset_flava(
-        args, os.path.join(os.environ['DATA_DIR'], args.dataset))
+    if args.transformer:
+        total_steps = len(train) * args.n_epochs
+        print("Total steps: ", total_steps)
+        param_optimizer = list(model.named_parameters())
+        no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+        optimizer_grouped_parameters = [
+            {"params": [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], "weight_decay": 0.01},
+            {"params": [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], "weight_decay": 0.0,},
+        ]
+        optimizer = BertAdam(
+            optimizer_grouped_parameters,
+            lr=args.lr,
+            warmup=args.warmup,
+            t_total=total_steps,
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, "max", patience=10, verbose=True, factor=0.5
+        )
+        args.scheduler_metric = 'val_acc'
 
-    model_func = FlavaFusionTransfomerwithCLSToken if args.clstoken else FlavaFusionTransfomer
+    else:
 
-    if args.avg_pool:
-        assert args.model_type != "Vanilla", "avg_pool is NOT supported for Vanilla model"
-
-    if args.model_type == "Vanilla":
-        model = model_func(out_dim=1,                  
-                num_classes=args.n_classes,
-                multimodal_num_attention_heads=args.multimodal_num_attention_heads,
-                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers,
-                drop=args.dropout,
-                avg_pool=args.avg_pool
-                )
-    elif args.model_type == "MIMO-shuffle-instance" or args.model_type == "MultiHead":
-        model = model_func(out_dim=2,
-                num_classes=args.n_classes,
-                multimodal_num_attention_heads=args.multimodal_num_attention_heads,
-                multimodal_num_hidden_layers=args.multimodal_num_hidden_layers,
-                drop=args.dropout,
-                avg_pool=args.avg_pool
-                )
-
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=args.lr,
-        betas=(0.9, 0.98),
-        eps=1.0e-9,
-        weight_decay=args.wd,
-    )
-
-    scheduler = get_cosine_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=len(train)*3,
-        num_training_steps=len(train)*args.n_epochs,
-    )
+        optimizer = torch.optim.SGD(model.parameters(), 
+            lr=args.lr, 
+            weight_decay=args.wd, 
+            momentum=args.momentum)
+    
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
+            mode='min', 
+            factor=0.1, 
+            patience=10, 
+            verbose=True, 
+            threshold=0.0001, 
+            threshold_mode='rel', 
+            cooldown=0, 
+            min_lr=0, 
+            eps=1e-08)
+        
+        args.scheduler_metric = 'val_loss'
     
     if not os.path.exists(args.save_path):
         os.makedirs(args.save_path)
@@ -161,7 +161,7 @@ if __name__ == "__main__":
     model = Model_(model=model, 
         optimizer=optimizer, 
         scheduler=scheduler,
-        data_forming_func=partial(dataset.data_forming_func_transformer, 
+        data_forming_func=partial(dataset.data_forming_func, 
                                   model_type=args.model_type),
         metrics=[acc],
         verbose=args.verbose,
@@ -177,15 +177,16 @@ if __name__ == "__main__":
         
     _ = model.train_loop(train,
                         valid_generator=valid,
-                        test_generator=test,
+                        test_generator=valid,
                         steps_per_epoch=len(train),
                         validation_steps=len(valid),
-                        test_steps=len(test),
-                        epochs=args.n_epochs, 
+                        test_steps=len(valid),
+                        epochs=args.n_epochs - 1, 
                         callbacks=callbacks,
                         patience=args.patience,
                         epoch_start=epoch_start,
-                        scheduler_step_on="batch",
-                        auc=args.auc
+                        scheduler_step_on="epoch",
+                        auc=False,
+                        args=args
                         )
     
